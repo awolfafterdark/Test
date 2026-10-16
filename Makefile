@@ -7,4 +7,5 @@ PickerPatcher_FILES = Core/PickerPatcher.m
 PickerPatcher_FRAMEWORKS = UIKit UniformTypeIdentifiers
 PickerPatcher_CFLAGS = -fobjc-arc -Wall -Wextra
 
+include $(THEOS)/makefiles/common.mk
 include $(THEOS_MAKE_PATH)/tweak.mk
