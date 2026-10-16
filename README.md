@@ -31,10 +31,19 @@ Open `PickerPatcherApp-TrollStore.ipa` from the Actions artifact in TrollStore.
 Within the patcher, choose an unencrypted IPA from Files, wait for the local
 export, then tap **Share IPA to TrollStore or Files** and select TrollStore.
 If it is absent from the first share panel, save to Files and share it from
-there. TrollStore signs the patched app during installation. The exported IPA
+there. You can also use **Files → Share → Open in PickerPatcher** to send an
+IPA directly to the app. The importer declares the IPA document type so Files
+can select it on iOS 15. TrollStore signs the patched app during installation. The exported IPA
 remains in the patcher's Documents until deleted with the app's button. The
 source IPA is never overwritten. The `.deb` is separately installed via a
 rootless package manager on a Dopamine device.
+
+The workflow's **Run workflow** form also accepts `app_display_name` and
+`icon_jpg_url`. Leave them blank to use the PickerPatcher name and generated
+default icon. For a custom icon, provide a public HTTPS URL to a JPEG (up to
+10 MB). The build crops it to a square and creates all iPhone/iPad app icon
+sizes. The name changes the patcher's Home Screen label, not the bundle ID or
+the names of patched third-party apps.
 
 With an optional URL to a user-provided **unencrypted** IPA, the workflow also
 patches that IPA. Without signing secrets the resulting IPA has an invalid
@@ -65,6 +74,8 @@ export THEOS=/path/to/theos
 make clean package FINALPACKAGE=1
 bash Tools/build-embedded.sh "$PWD/dist"
 xcrun clang -O2 -DPP_STANDALONE Core/MachOInject.c -o dist/pp-inject
+python3 Tools/configure_app.py 'My Patcher'
+swift Tools/make_app_icon.swift /path/to/optional-icon.jpg
 mkdir -p PatcherApp/Resources
 (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
 cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/

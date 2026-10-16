@@ -11,6 +11,20 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>UIFileSharingEnabled</key><true/>
 <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+<key>UTImportedTypeDeclarations</key><array><dict>
+  <key>UTTypeIdentifier</key><string>com.apple.itunes.ipa</string>
+  <key>UTTypeDescription</key><string>iOS App Archive</string>
+  <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+  <key>UTTypeTagSpecification</key><dict>
+    <key>public.filename-extension</key><array><string>ipa</string></array>
+  </dict>
+</dict></array>
+<key>CFBundleDocumentTypes</key><array><dict>
+  <key>CFBundleTypeName</key><string>iOS App Archive</string>
+  <key>CFBundleTypeRole</key><string>Editor</string>
+  <key>LSHandlerRank</key><string>Alternate</string>
+  <key>LSItemContentTypes</key><array><string>com.apple.itunes.ipa</string></array>
+</dict></array>
 <key>UILaunchScreen</key><dict/>
 <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
 <key>UISupportedInterfaceOrientations</key><array>

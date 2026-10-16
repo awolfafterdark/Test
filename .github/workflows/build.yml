@@ -24,6 +24,15 @@ on:
         description: 'Optional URL for a user-provided unencrypted IPA'
         required: false
         type: string
+      app_display_name:
+        description: 'Optional name shown under the on-device patcher icon'
+        required: false
+        default: 'PickerPatcher'
+        type: string
+      icon_jpg_url:
+        description: 'Optional HTTPS URL to a JPEG for the on-device patcher icon'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -95,8 +104,20 @@ jobs:
         run: python3 Tests/test_macho_inject.py
 
       - name: Build on-device patcher IPA for TrollStore
+        env:
+          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher' }}
+          ICON_JPG_URL: ${{ inputs.icon_jpg_url || '' }}
         run: |
           set -euo pipefail
+          python3 Tools/configure_app.py "$APP_DISPLAY_NAME"
+          if [ -n "$ICON_JPG_URL" ]; then
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --max-time 90 --max-filesize 10000000 "$ICON_JPG_URL" -o "$RUNNER_TEMP/custom-icon.jpg"
+            sips -g format "$RUNNER_TEMP/custom-icon.jpg" | grep -qi 'format: jpeg'
+            swift Tools/make_app_icon.swift "$RUNNER_TEMP/custom-icon.jpg"
+          else
+            swift Tools/make_app_icon.swift
+          fi
           mkdir -p PatcherApp/Resources
           (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
           cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/
@@ -107,6 +128,7 @@ jobs:
           app="$RUNNER_TEMP/PickerPatcherDerived/Build/Products/Release-iphoneos/PickerPatcherApp.app"
           test -f "$app/PickerPatcherApp"
           test -f "$app/Payload.zip"
+          test -f "$app/Assets.car"
           codesign --force --sign - --timestamp=none "$app"
           codesign --verify --strict "$app"
           mkdir -p "$RUNNER_TEMP/pickerpatcher-ipa/Payload"
