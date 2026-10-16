@@ -23,7 +23,7 @@ on:
       app_display_name:
         description: 'Optional name shown under the on-device patcher icon'
         required: false
-        default: 'PickerPatcher'
+        default: 'PickerPatcher 0.5'
         type: string
       icon_image_url:
         description: 'Optional direct HTTPS URL to a JPG or PNG for the patcher icon'
@@ -99,7 +99,7 @@ jobs:
 
       - name: Build on-device patcher IPA for TrollStore
         env:
-          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher' }}
+          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.5' }}
           ICON_IMAGE_URL: ${{ inputs.icon_image_url || '' }}
         run: |
           set -euo pipefail

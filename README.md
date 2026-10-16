@@ -4,7 +4,7 @@ This project builds **two separate installable outputs in GitHub Actions**:
 
 | Output | Use |
 | --- | --- |
-| `dev.pickerpatcher.prototype_0.4.0_iphoneos-arm64.deb` | Install with a rootless package manager on a Dopamine iOS 15 device. ElleKit injects only into the bundle IDs selected at build time. |
+| `dev.pickerpatcher.prototype_0.5.0_iphoneos-arm64.deb` | Install with a rootless package manager on a Dopamine iOS 15 device. ElleKit injects only into the bundle IDs selected at build time. |
 | `PickerPatcherApp-TrollStore.ipa` | Install through TrollStore. Choose an unencrypted IPA in Files, patch it on the device, then share the resulting IPA to TrollStore for installation. |
 
 The embedded framework and Mach-O injector are also in the Action artifact. The tweak and the on-device patcher use the same picker code. The original app executable is untouched in installed-app mode; IPA mode modifies a **copy** of the supplied package.
@@ -19,13 +19,17 @@ The embedded framework and Mach-O injector are also in the Action artifact. The 
 | Optional Run workflow field | Meaning |
 | --- | --- |
 | `icon_image_url` | Direct public HTTPS URL to a JPG or PNG (up to 10 MB). The Action checks the decoded image format, crops the image to a square, and generates all iPhone/iPad app icon sizes. Leave empty for the default icon. |
-| `app_display_name` | Home Screen name for the **patcher app**. Leave empty for `PickerPatcher`. This does not rename patched third-party apps. |
+| `app_display_name` | Home Screen name for the **patcher app**. Leave empty for `PickerPatcher 0.5`. This does not rename patched third-party apps. |
 
 No local Mac build script, Apple certificate, or repository secret is required for these two outputs. The CI-built patcher IPA uses an ad-hoc signature for TrollStore. The output of the on-device patcher is installed and signed by TrollStore.
 
 ## Use the on-device IPA patcher
 
-Install version **0.4.0 (4)**, shown at the bottom of the patcher screen. Open the patcher, tap **Choose IPA from Files**, select an unencrypted IPA, wait for the result, and tap **Share IPA to TrollStore or Files**. If TrollStore is absent from the first share panel, save the IPA to Files and share it from there. You can also select an IPA in Files and use **Share → Open in PickerPatcher**. The app uses a UIKit document picker with the system-resolved `.ipa` file type, matching TrollStore's importer. Errors are shown in the app, and the source IPA is not overwritten. Exported IPAs remain in the patcher's Documents until deleted with its button.
+Install version **0.5.0 (5)**. The build number is at the top of the patcher screen. This version has a distinct bundle ID (`dev.pickerpatcher.app.v05`) and default Home Screen name (`PickerPatcher 0.5`), so it installs beside older builds; open the new icon. Tap **Choose IPA from Files**, select an unencrypted IPA, wait for the result, and tap **Share IPA to TrollStore or Files**. The UIKit document picker asks Files for a copy, which may require an iCloud download before selection completes. If TrollStore is absent from the first share panel, save the result to Files and share it from there.
+
+If an iCloud Drive file remains visible but untappable, use **Files → Browse → iCloud Drive**, copy the IPA, then paste it into **On My iPod → PickerPatcher 0.5 → Imports**. Return to PickerPatcher, tap **Refresh local IPAs**, and tap **Patch _filename_.ipa**. The app creates the Imports folder when first launched and shows every regular `.ipa` in it. This local path does not depend on the document picker returning a URL. If you chose a custom app name, the folder will use that name. You can also select an IPA in Files and use **Share → Open in PickerPatcher**.
+
+Errors are shown in the app, and the source IPA is not overwritten. Exported IPAs remain in the patcher's Documents until deleted with its button.
 
 The on-device patcher supports thin arm64 main executables with free Mach-O header space. It rejects encrypted executables, app extensions, nested apps, unsafe ZIP paths, and insufficient disk space. It cannot retrieve or decrypt already installed apps. Apps with integrity checks or unusual entitlements may still fail installation or launch. Test each patched app's actual upload flow.
 
@@ -37,4 +41,4 @@ The `.deb` injects only into the configured bundle IDs in `PickerPatcher.plist`.
 
 ## Validation
 
-The Action compiles the iOS app and rootless tweak, exercises JPEG and PNG icon generation, verifies the IPA ZIP and ad-hoc app signature, and runs injector regression cases. An iOS 15 Dopamine device with TrollStore is still needed to verify the Files selection, patch/export/install, and media upload in each target app. Test first with a small unencrypted IPA that you are authorized to modify. If an IPA remains visible but untappable, try the same file in TrollStore's **Install IPA File** picker to distinguish a provider-specific issue, then use **Files → Share → Open in PickerPatcher**.
+The Action compiles the iOS app and rootless tweak, exercises JPEG and PNG icon generation, verifies the IPA ZIP and ad-hoc app signature, and runs injector regression cases. An iOS 15 Dopamine device with TrollStore is still needed to verify the Files selection, local folder patch/export/install, and media upload in each target app. Test first with a small unencrypted IPA that you are authorized to modify. If an IPA remains visible but untappable in both this app and TrollStore's **Install IPA File** picker, verify it has downloaded locally in Files.

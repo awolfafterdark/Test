@@ -9,20 +9,44 @@ struct PickerPatcherApp: App {
 }
 
 struct PatcherView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var importing = false
     @State private var busy = false
-    @State private var status = "Choose an unencrypted IPA you are authorized to modify."
+    @State private var status = "Choose an IPA from Files or copy it into the local Imports folder."
+    @State private var localIPAs: [URL] = []
     @State private var output: URL?
     @State private var sharing = false
 
     var body: some View {
         NavigationView {
             Form {
+                Section {
+                    Text("Build 0.5.0 (5) · iOS 15")
+                        .font(.headline)
+                }
                 Section("Patch an IPA") {
-                    Button("Choose IPA from Files") { importing = true }
+                    Button("Choose IPA from Files") {
+                        status = "Select an IPA. An iCloud file may need to download before Files returns it."
+                        importing = true
+                    }
                         .disabled(busy)
                     if busy { ProgressView("Inspecting and patching…") }
                     Text(status).font(.footnote).textSelection(.enabled)
+                }
+                Section("IPAs on this iPod") {
+                    Text("In Files, copy an IPA into Browse → On My iPod → \(appDisplayName) → Imports. Return here and tap Refresh local IPAs.")
+                        .font(.footnote)
+                    Button("Refresh local IPAs") { refreshLocalIPAs() }
+                        .disabled(busy)
+                    if localIPAs.isEmpty {
+                        Text("No local IPAs in Imports yet.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    ForEach(localIPAs, id: \.path) { url in
+                        Button("Patch \(url.lastPathComponent)") { startPatching(url) }
+                            .disabled(busy)
+                    }
                 }
                 if let output = output {
                     Section("Result") {
@@ -41,13 +65,12 @@ struct PatcherView: View {
                     Text("The original IPA is never modified. Installation and upload behavior must be tested for each target app.")
                         .font(.footnote)
                 }
-                Section {
-                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
             }
-            .navigationTitle("PickerPatcher")
+            .navigationTitle("PickerPatcher 0.5")
+        }
+        .onAppear { refreshLocalIPAs() }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { refreshLocalIPAs() }
         }
         .sheet(isPresented: $importing) {
             IPAFilePicker(isPresented: $importing) { url in
@@ -57,6 +80,28 @@ struct PatcherView: View {
         .onOpenURL { url in startPatching(url) }
         .sheet(isPresented: $sharing) {
             if let output = output { ShareSheet(items: [output]) }
+        }
+    }
+
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "PickerPatcher 0.5"
+    }
+
+    private func refreshLocalIPAs() {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = documents.appendingPathComponent("Imports", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            localIPAs = try FileManager.default.contentsOfDirectory(at: folder,
+                includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])
+                .filter { url in
+                    url.pathExtension.lowercased() == "ipa" &&
+                        ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false)
+                }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        } catch {
+            localIPAs = []
+            status = "Could not read the local Imports folder: \(error.localizedDescription)"
         }
     }
 
@@ -88,7 +133,9 @@ struct IPAFilePicker: UIViewControllerRepresentable {
         // uses this same initializer for its own IPA document picker.
         let ipa = UTType(filenameExtension: "ipa", conformingTo: .data)
             ?? UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .data)
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [ipa])
+        // Ask Files to import a copy. For a cloud file, the provider must
+        // materialize it before the delegate receives the copied URL.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [ipa, .data], asCopy: true)
         picker.delegate = context.coordinator
         picker.allowsMultipleSelection = false
         return picker
