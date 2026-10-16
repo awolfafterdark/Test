@@ -5,7 +5,10 @@ on:
     paths:
       - 'Core/**'
       - 'Embedded/**'
+      - 'PatcherApp/**'
+      - 'Tests/**'
       - 'Tools/**'
+      - 'configure-target.py'
       - 'Makefile'
       - 'control'
       - 'PickerPatcher.plist'
@@ -35,6 +38,15 @@ jobs:
       - name: Checkout PickerPatcher
         uses: actions/checkout@v4
 
+      - name: Verify project files are at repository root
+        run: |
+          set -euo pipefail
+          for path in configure-target.py Makefile Core/PickerPatcher.m \
+            Core/MachOInject.c Tools/build-embedded.sh \
+            PatcherApp/project.yml PatcherApp/Sources/IPAPatcher.swift; do
+            test -f "$path" || { echo "Missing $path at repository root" >&2; exit 1; }
+          done
+
       - name: Checkout pinned Theos
         uses: actions/checkout@v4
         with:
@@ -43,19 +55,12 @@ jobs:
           path: theos
           submodules: recursive
 
-      - name: Checkout pinned Mach-O injector
-        uses: actions/checkout@v4
-        with:
-          repository: tyilo/insert_dylib
-          ref: eb7278162af8fcc372e7f2946a2dee6a386b17d8
-          path: vendor/insert_dylib
-
       - name: Configure macOS toolchain
         run: |
           set -euo pipefail
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
-          brew install make dpkg ldid
+          brew install make dpkg ldid xcodegen
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           version="$(xcrun --sdk iphoneos --show-sdk-version)"
@@ -74,18 +79,40 @@ jobs:
           cp packages/*.deb dist/
           dpkg-deb --contents dist/*.deb | grep 'PickerPatcher.dylib'
 
-      - name: Build independent embedded framework and injector
+      - name: Build independent embedded framework and safe injector
         run: |
           set -euo pipefail
           bash Tools/build-embedded.sh "$PWD/dist"
-          xcrun clang -O2 -Wall -Wextra vendor/insert_dylib/insert_dylib/main.c -o dist/insert_dylib
-          chmod +x dist/insert_dylib
+          xcrun clang -O2 -Wall -Wextra -DPP_STANDALONE Core/MachOInject.c -o dist/pp-inject
           if otool -L dist/PickerPatcherEmbedded.framework/PickerPatcherEmbedded | grep -Ei 'substrate|ellekit'; then
             echo 'Embedded build unexpectedly depends on a jailbreak loader' >&2
             exit 1
           fi
           cp Tools/patch_ipa.py dist/
           cp README.md dist/README.md
+
+      - name: Check injector safety cases
+        run: python3 Tests/test_macho_inject.py
+
+      - name: Build on-device patcher IPA for TrollStore
+        run: |
+          set -euo pipefail
+          mkdir -p PatcherApp/Resources
+          (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
+          cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/
+          (cd PatcherApp && xcodegen generate --spec project.yml)
+          xcodebuild -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
+            -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerPatcherDerived" \
+            CODE_SIGNING_ALLOWED=NO build
+          app="$RUNNER_TEMP/PickerPatcherDerived/Build/Products/Release-iphoneos/PickerPatcherApp.app"
+          test -f "$app/PickerPatcherApp"
+          test -f "$app/Payload.zip"
+          codesign --force --sign - --timestamp=none "$app"
+          codesign --verify --strict "$app"
+          mkdir -p "$RUNNER_TEMP/pickerpatcher-ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/pickerpatcher-ipa/Payload/"
+          (cd "$RUNNER_TEMP/pickerpatcher-ipa" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/dist/PickerPatcherApp-TrollStore.ipa")
+          unzip -t dist/PickerPatcherApp-TrollStore.ipa >/dev/null
 
       - name: Download optional IPA
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' }}
@@ -125,7 +152,7 @@ jobs:
           SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
         run: |
           python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/insert_dylib --out dist/PickerPatcher-signed.ipa \
+            --injector dist/pp-inject --out dist/PickerPatcher-signed.ipa \
             --sign-identity "$SIGN_IDENTITY" --profile "$RUNNER_TEMP/profile.mobileprovision" \
             --entitlements "$RUNNER_TEMP/entitlements.plist"
 
@@ -133,7 +160,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY == '' }}
         run: |
           python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/insert_dylib --out dist/PickerPatcher-unsigned.ipa
+            --injector dist/pp-inject --out dist/PickerPatcher-unsigned.ipa
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
