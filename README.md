@@ -4,7 +4,7 @@ This project builds **two separate installable outputs in GitHub Actions**:
 
 | Output | Use |
 | --- | --- |
-| `dev.pickerpatcher.prototype_0.3.0_iphoneos-arm64.deb` | Install with a rootless package manager on a Dopamine iOS 15 device. ElleKit injects only into the bundle IDs selected at build time. |
+| `dev.pickerpatcher.prototype_0.4.0_iphoneos-arm64.deb` | Install with a rootless package manager on a Dopamine iOS 15 device. ElleKit injects only into the bundle IDs selected at build time. |
 | `PickerPatcherApp-TrollStore.ipa` | Install through TrollStore. Choose an unencrypted IPA in Files, patch it on the device, then share the resulting IPA to TrollStore for installation. |
 
 The embedded framework and Mach-O injector are also in the Action artifact. The tweak and the on-device patcher use the same picker code. The original app executable is untouched in installed-app mode; IPA mode modifies a **copy** of the supplied package.
@@ -25,7 +25,7 @@ No local Mac build script, Apple certificate, or repository secret is required f
 
 ## Use the on-device IPA patcher
 
-Open the patcher, tap **Choose IPA from Files**, select an unencrypted IPA, wait for the result, and tap **Share IPA to TrollStore or Files**. If TrollStore is absent from the first share panel, save the IPA to Files and share it from there. You can also select an IPA in Files and use **Share → Open in PickerPatcher**. The app declares the IPA document type so Files can make IPA files selectable on iOS 15. Errors are shown in the app, and the source IPA is not overwritten. Exported IPAs remain in the patcher's Documents until deleted with its button.
+Install version **0.4.0 (4)**, shown at the bottom of the patcher screen. Open the patcher, tap **Choose IPA from Files**, select an unencrypted IPA, wait for the result, and tap **Share IPA to TrollStore or Files**. If TrollStore is absent from the first share panel, save the IPA to Files and share it from there. You can also select an IPA in Files and use **Share → Open in PickerPatcher**. The app uses a UIKit document picker with the system-resolved `.ipa` file type, matching TrollStore's importer. Errors are shown in the app, and the source IPA is not overwritten. Exported IPAs remain in the patcher's Documents until deleted with its button.
 
 The on-device patcher supports thin arm64 main executables with free Mach-O header space. It rejects encrypted executables, app extensions, nested apps, unsafe ZIP paths, and insufficient disk space. It cannot retrieve or decrypt already installed apps. Apps with integrity checks or unusual entitlements may still fail installation or launch. Test each patched app's actual upload flow.
 
@@ -37,4 +37,4 @@ The `.deb` injects only into the configured bundle IDs in `PickerPatcher.plist`.
 
 ## Validation
 
-The Action compiles the iOS app and rootless tweak, exercises JPEG and PNG icon generation, verifies the IPA ZIP and ad-hoc app signature, and runs injector regression cases. An iOS 15 Dopamine device with TrollStore is still needed to verify the Files selection, patch/export/install, and media upload in each target app. Test first with a small unencrypted IPA that you are authorized to modify.
+The Action compiles the iOS app and rootless tweak, exercises JPEG and PNG icon generation, verifies the IPA ZIP and ad-hoc app signature, and runs injector regression cases. An iOS 15 Dopamine device with TrollStore is still needed to verify the Files selection, patch/export/install, and media upload in each target app. Test first with a small unencrypted IPA that you are authorized to modify. If an IPA remains visible but untappable, try the same file in TrollStore's **Install IPA File** picker to distinguish a provider-specific issue, then use **Files → Share → Open in PickerPatcher**.

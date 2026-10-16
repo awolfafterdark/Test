@@ -9,9 +9,6 @@ struct PickerPatcherApp: App {
 }
 
 struct PatcherView: View {
-    // iOS Files exposes .ipa using com.apple.itunes.ipa. Using only .item in
-    // fileImporter can leave the document visible but not selectable on iOS 15.
-    private let ipaType = UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .data)
     @State private var importing = false
     @State private var busy = false
     @State private var status = "Choose an unencrypted IPA you are authorized to modify."
@@ -44,13 +41,17 @@ struct PatcherView: View {
                     Text("The original IPA is never modified. Installation and upload behavior must be tested for each target app.")
                         .font(.footnote)
                 }
+                Section {
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"))")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
             .navigationTitle("PickerPatcher")
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [ipaType, .data]) { result in
-            switch result {
-            case .success(let url): startPatching(url)
-            case .failure(let error): status = error.localizedDescription
+        .sheet(isPresented: $importing) {
+            IPAFilePicker(isPresented: $importing) { url in
+                startPatching(url)
             }
         }
         .onOpenURL { url in startPatching(url) }
@@ -74,6 +75,42 @@ struct PatcherView: View {
                     status = error.localizedDescription
                 }
             }
+        }
+    }
+}
+
+struct IPAFilePicker: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let onPick: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        // Resolve the actual system type for the filename extension. TrollStore
+        // uses this same initializer for its own IPA document picker.
+        let ipa = UTType(filenameExtension: "ipa", conformingTo: .data)
+            ?? UTType(importedAs: "com.apple.itunes.ipa", conformingTo: .data)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [ipa])
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let parent: IPAFilePicker
+        init(parent: IPAFilePicker) { self.parent = parent }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController,
+                            didPickDocumentsAt urls: [URL]) {
+            parent.isPresented = false
+            guard let url = urls.first else { return }
+            parent.onPick(url)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            parent.isPresented = false
         }
     }
 }
