@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <dlfcn.h>
 
 @interface HarnessController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate>
 @property(nonatomic, strong) UILabel *result;
@@ -99,6 +100,11 @@
 @end
 @implementation HarnessAppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
+    if ([NSProcessInfo.processInfo.arguments containsObject:@"--double-hook"]) {
+        NSURL *second = [NSBundle.mainBundle URLForResource:@"PickerPatcherSecond" withExtension:@"dylib"];
+        void *handle = second ? dlopen(second.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL) : NULL;
+        NSAssert(handle != NULL, @"The independent second hook image must load");
+    }
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:[HarnessController new]];
     [self.window makeKeyAndVisible];

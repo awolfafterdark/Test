@@ -42,6 +42,10 @@ Official TrollStore RootHelper/main.m was reviewed. If an input main executable 
 - SerpApi: no callable connector, CLI, injected key or configured key store was available. No SerpApi result is claimed.
 - Mobile App Builder debugging workflow: separated UI, callback, access, patching and compatibility failures; added reproduction/test cases. It supplies no iOS framework evidence.
 
+## Duplicate loading
+
+A category-based swizzle stores UIKit's implementation under another Objective-C selector. Loading a second library with that same category can overwrite the saved selector before an initialization guard runs, producing recursion. The final engine uses a static C hook and saved IMP, with shared selector association keys and a process-level installation flag. The Simulator media host deliberately loads a second independent build of the core and runs its native file-selection/cancellation tests with both images loaded. The shipping IPA patcher does not contain this simulator-only dylib.
+
 ## Tests and boundaries
 
 The CI UI tests require native Files selection of a bundled unencrypted IPA followed by successful patching, cancellation through the compatibility picker, and native Files image selection/cancellation followed by valid original-controller callback/dismissal semantics. CI stores runtime information and XCTest results. Runtime and device distinctions must accompany any success claim.

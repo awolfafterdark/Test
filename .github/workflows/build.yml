@@ -124,7 +124,16 @@ jobs:
             swift Tools/make_app_icon.swift "$RUNNER_TEMP/icon-smoke.jpg"
             swift Tools/make_app_icon.swift
           fi
-          mkdir -p PatcherApp/Resources
+          mkdir -p PatcherApp/Resources PatcherApp/BridgeResources
+          # Test accidental runtime + embedded loading with a separately compiled
+          # simulator image. This dylib is a resource of the test host only.
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          simulator_arch="$(uname -m)"
+          xcrun --sdk iphonesimulator clang -arch "$simulator_arch" -target "${simulator_arch}-apple-ios15.0-simulator" \
+            -isysroot "$simulator_sdk" -fobjc-arc -fmodules -dynamiclib \
+            -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation \
+            Core/PickerPatcher.m -o PatcherApp/BridgeResources/PickerPatcherSecond.dylib
+          codesign --force --sign - --timestamp=none PatcherApp/BridgeResources/PickerPatcherSecond.dylib
           (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
           cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/
           (cd PatcherApp && xcodegen generate --spec project.yml)

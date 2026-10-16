@@ -54,6 +54,8 @@ targets:
     sources:
       - ../Harness
       - ../Core/PickerPatcher.m
+      - path: BridgeResources
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.bridgehost

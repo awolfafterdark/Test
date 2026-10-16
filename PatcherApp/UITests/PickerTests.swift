@@ -62,6 +62,7 @@ final class BridgePickerTests: XCTestCase {
     }
     func testFilesImageCallbackAndDismissal() {
         let app = XCUIApplication()
+        app.launchArguments = ["--double-hook"]
         app.launch()
         app.buttons["harnessImage"].tap()
         let files = app.buttons["Browse Files"]
@@ -78,6 +79,7 @@ final class BridgePickerTests: XCTestCase {
     }
     func testFilesCancellationDismissesOriginalPicker() {
         let app = XCUIApplication()
+        app.launchArguments = ["--double-hook"]
         app.launch()
         app.buttons["harnessImage"].tap()
         app.buttons["Browse Files"].tap()

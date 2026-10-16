@@ -4,8 +4,9 @@
 #import <ImageIO/ImageIO.h>
 #import <AVFoundation/AVFoundation.h>
 
-static char PPBypassKey;
-static char PPBridgeKey;
+// Selector keys are shared across dynamic images, unlike addresses of static chars.
+static const void *PPBypassKey(void) { return NSSelectorFromString(@"PickerPatcherBypassV06"); }
+static const void *PPBridgeKey(void) { return NSSelectorFromString(@"PickerPatcherBridgeV06"); }
 static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled";
 
 // This file deliberately has no substrate/ElleKit dependency. The same code is
@@ -32,8 +33,8 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
 - (void)endSession {
     UIDocumentPickerViewController *documentPicker = self.documentPicker;
     self.documentPicker = nil;
-    objc_setAssociatedObject(documentPicker, &PPBridgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    objc_setAssociatedObject(self.originalPicker, &PPBridgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(documentPicker, PPBridgeKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self.originalPicker, PPBridgeKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
@@ -221,32 +222,33 @@ static void PPPruneOldFiles(void) {
     }
 }
 
-@interface UIViewController (PickerPatcher)
-- (void)pp_presentViewController:(UIViewController *)viewController animated:(BOOL)animated completion:(void (^)(void))completion;
-@end
+static IMP PPOriginalPresentIMP;
+static void PPCallOriginal(UIViewController *presenter, UIViewController *controller, BOOL animated, void (^completion)(void)) {
+    ((void (*)(id, SEL, UIViewController *, BOOL, void (^)(void)))PPOriginalPresentIMP)
+        (presenter, @selector(presentViewController:animated:completion:), controller, animated, completion);
+}
 
-@implementation UIViewController (PickerPatcher)
-- (void)pp_presentViewController:(UIViewController *)viewController animated:(BOOL)animated completion:(void (^)(void))completion {
-    if (objc_getAssociatedObject(viewController, &PPBypassKey)) {
-        objc_setAssociatedObject(viewController, &PPBypassKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [self pp_presentViewController:viewController animated:animated completion:completion];
+static void PPPresent(UIViewController *self, __unused SEL command, UIViewController *viewController, BOOL animated, void (^completion)(void)) {
+    if (objc_getAssociatedObject(viewController, PPBypassKey())) {
+        objc_setAssociatedObject(viewController, PPBypassKey(), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        PPCallOriginal(self, viewController, animated, completion);
         return;
     }
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PickerPatcherDisabled"] ||
         [[NSFileManager defaultManager] fileExistsAtPath:PPDisableFlag] ||
         ![viewController isKindOfClass:[UIImagePickerController class]]) {
-        [self pp_presentViewController:viewController animated:animated completion:completion];
+        PPCallOriginal(self, viewController, animated, completion);
         return;
     }
     UIImagePickerController *picker = (UIImagePickerController *)viewController;
     if (picker.sourceType != UIImagePickerControllerSourceTypePhotoLibrary &&
         picker.sourceType != UIImagePickerControllerSourceTypeSavedPhotosAlbum) {
-        [self pp_presentViewController:viewController animated:animated completion:completion];
+        PPCallOriginal(self, viewController, animated, completion);
         return;
     }
     // Preserve workflows whose delegate or editing contract we cannot satisfy.
     if (picker.allowsEditing || ![picker.delegate respondsToSelector:@selector(imagePickerController:didFinishPickingMediaWithInfo:)]) {
-        [self pp_presentViewController:viewController animated:animated completion:completion];
+        PPCallOriginal(self, viewController, animated, completion);
         return;
     }
     BOOL hasSupportedType = picker.mediaTypes.count == 0;
@@ -255,7 +257,7 @@ static void PPPruneOldFiles(void) {
         hasSupportedType |= [type conformsToType:UTTypeImage] || [type conformsToType:UTTypeMovie];
     }
     if (!hasSupportedType) {
-        [self pp_presentViewController:viewController animated:animated completion:completion];
+        PPCallOriginal(self, viewController, animated, completion);
         return;
     }
     UIAlertController *choice = [UIAlertController alertControllerWithTitle:@"Select media"
@@ -272,7 +274,7 @@ static void PPPruneOldFiles(void) {
     };
     [choice addAction:[UIAlertAction actionWithTitle:@"Photo Library" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         afterChoice(^(UIViewController *presenter) {
-            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, PPBypassKey(), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [presenter presentViewController:picker animated:animated completion:completion];
         });
     }]];
@@ -298,9 +300,9 @@ static void PPPruneOldFiles(void) {
             // The original UIImagePickerController remains a real presented
             // controller. Its delegate may dismiss that exact object, inspect its
             // presenter, or start uploading in its dismissal completion block.
-            objc_setAssociatedObject(document, &PPBridgeKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(picker, &PPBridgeKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(document, PPBridgeKey(), bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, PPBridgeKey(), bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, PPBypassKey(), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [presenter presentViewController:picker animated:NO completion:^{
                 NSString *testFolder = [[NSUserDefaults standardUserDefaults] stringForKey:@"PickerPatcherTestDirectory"];
                 if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"dev.pickerpatcher.bridgehost"] && testFolder) {
@@ -312,7 +314,7 @@ static void PPPruneOldFiles(void) {
     }]];
     [choice addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action) {
         afterChoice(^(UIViewController *presenter) {
-            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, PPBypassKey(), @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             [presenter presentViewController:picker animated:NO completion:^{
                 if (completion) completion();
                 id<UIImagePickerControllerDelegate> delegate = picker.delegate;
@@ -328,19 +330,19 @@ static void PPPruneOldFiles(void) {
     }
     [self presentViewController:choice animated:animated completion:nil];
 }
-@end
 
 __attribute__((constructor)) static void PickerPatcherStart(void) {
     @autoreleasepool {
         if ([NSBundle.mainBundle.bundleIdentifier hasPrefix:@"com.apple."]) return;
-        // The same process may accidentally load both a runtime tweak and an
-        // embedded copy. A selector key is shared across dynamic images.
+        // No category methods: a second dynamic image cannot overwrite a
+        // selector holding UIKit's saved implementation before this guard runs.
         const void *hookKey = NSSelectorFromString(@"PickerPatcherInstalledV06");
         if (objc_getAssociatedObject(UIViewController.class, hookKey)) return;
-        objc_setAssociatedObject(UIViewController.class, hookKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ PPPruneOldFiles(); });
         Method original = class_getInstanceMethod(UIViewController.class, @selector(presentViewController:animated:completion:));
-        Method replacement = class_getInstanceMethod(UIViewController.class, @selector(pp_presentViewController:animated:completion:));
-        if (original && replacement) method_exchangeImplementations(original, replacement);
+        if (!original) return;
+        PPOriginalPresentIMP = method_getImplementation(original);
+        objc_setAssociatedObject(UIViewController.class, hookKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        method_setImplementation(original, (IMP)PPPresent);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ PPPruneOldFiles(); });
     }
 }
