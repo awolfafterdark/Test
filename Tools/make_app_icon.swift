@@ -22,8 +22,8 @@ if CommandLine.arguments.count > 1 {
 func iconPNG(_ dimension: Int) throws -> Data {
     guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: dimension,
                                        pixelsHigh: dimension, bitsPerSample: 8,
-                                       samplesPerPixel: 3, hasAlpha: false, isPlanar: false,
-                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 32),
           let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
         throw NSError(domain: "PickerPatcherIcon", code: 1)
     }
