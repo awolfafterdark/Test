@@ -10,7 +10,7 @@ mkdir -p "$framework"
 "$compiler" -arch arm64 -miphoneos-version-min=15.0 -isysroot "$sdk" \
   -fobjc-arc -fmodules -O2 -Wall -Wextra -dynamiclib \
   -install_name '@rpath/PickerPatcherEmbedded.framework/PickerPatcherEmbedded' \
-  -framework Foundation -framework UIKit -framework UniformTypeIdentifiers \
+  -framework Foundation -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation \
   "$project_root/Core/PickerPatcher.m" -o "$framework/PickerPatcherEmbedded"
 cp "$project_root/Embedded/Info.plist" "$framework/Info.plist"
 echo "Built $framework"

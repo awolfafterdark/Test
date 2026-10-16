@@ -7,6 +7,7 @@ on:
       - 'Embedded/**'
       - 'PatcherApp/**'
       - 'Tests/**'
+      - 'Harness/**'
       - 'Tools/**'
       - 'configure-target.py'
       - 'Makefile'
@@ -23,7 +24,7 @@ on:
       app_display_name:
         description: 'Optional name shown under the on-device patcher icon'
         required: false
-        default: 'PickerPatcher 0.5'
+        default: 'PickerPatcher 0.6'
         type: string
       icon_image_url:
         description: 'Optional direct HTTPS URL to a JPG or PNG for the patcher icon'
@@ -99,7 +100,7 @@ jobs:
 
       - name: Build on-device patcher IPA for TrollStore
         env:
-          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.5' }}
+          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.6' }}
           ICON_IMAGE_URL: ${{ inputs.icon_image_url || '' }}
         run: |
           set -euo pipefail
@@ -127,6 +128,18 @@ jobs:
           (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
           cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/
           (cd PatcherApp && xcodegen generate --spec project.yml)
+          # Build a known unencrypted app that can be selected, patched, exported,
+          # and installed on an iOS 15 device to exercise the media contract.
+          xcodebuild -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerHarness \
+            -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerHarnessDerived" \
+            CODE_SIGNING_ALLOWED=NO build
+          fixture="$RUNNER_TEMP/PickerHarnessDerived/Build/Products/Release-iphoneos/PickerHarness.app"
+          codesign --force --sign - --timestamp=none "$fixture"
+          mkdir -p "$RUNNER_TEMP/picker-harness/Payload"
+          cp -R "$fixture" "$RUNNER_TEMP/picker-harness/Payload/"
+          (cd "$RUNNER_TEMP/picker-harness" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/PatcherApp/Resources/PickerHarness.ipa")
+          cp PatcherApp/Resources/PickerHarness.ipa dist/PickerHarness-unpatched.ipa
+          (cd PatcherApp && xcodegen generate --spec project.yml)
           xcodebuild -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
             -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerPatcherDerived" \
             CODE_SIGNING_ALLOWED=NO build
@@ -141,7 +154,26 @@ jobs:
           (cd "$RUNNER_TEMP/pickerpatcher-ipa" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/dist/PickerPatcherApp-TrollStore.ipa")
           unzip -t dist/PickerPatcherApp-TrollStore.ipa >/dev/null
 
+      - name: Test native Files selection and media callback lifecycle in Simulator
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          simulator="$(python3 -c 'import json,os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/simulators.json")); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["isAvailable"] and "iPhone" in v["name"]))')"
+          xcrun simctl boot "$simulator" || true
+          xcrun simctl bootstatus "$simulator" -b
+          xcrun simctl status_bar "$simulator" override --time '9:41' || true
+          xcrun simctl list devices available > dist/simulator-runtime.txt
+          xcodebuild test -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
+            -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerPatcherSim" -resultBundlePath dist/ImportPickerTests.xcresult \
+            -only-testing:ImportPickerTests/ImportPickerTests CODE_SIGNING_ALLOWED=NO
+          xcodebuild test -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerBridgeHost \
+            -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerBridgeSim" -resultBundlePath dist/BridgePickerTests.xcresult \
+            -only-testing:BridgePickerTests/BridgePickerTests CODE_SIGNING_ALLOWED=NO
+
       - name: Upload build artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: PickerPatcher-iOS15-${{ github.run_number }}

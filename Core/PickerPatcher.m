@@ -1,6 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <objc/runtime.h>
+#import <ImageIO/ImageIO.h>
+#import <AVFoundation/AVFoundation.h>
 
 static char PPBypassKey;
 static char PPBridgeKey;
@@ -13,6 +15,7 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
 @property(nonatomic, strong) UIImagePickerController *originalPicker;
 @property(nonatomic, weak) UIViewController *presenter;
 @property(nonatomic, strong) UIDocumentPickerViewController *documentPicker;
+@property(nonatomic) BOOL processing;
 - (instancetype)initWithPicker:(UIImagePickerController *)picker presenter:(UIViewController *)presenter;
 @end
 
@@ -30,6 +33,7 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
     UIDocumentPickerViewController *documentPicker = self.documentPicker;
     self.documentPicker = nil;
     objc_setAssociatedObject(documentPicker, &PPBridgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(self.originalPicker, &PPBridgeKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
@@ -54,7 +58,7 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
         }
         [self endSession];
     }]];
-    UIViewController *presenter = self.presenter;
+    UIViewController *presenter = self.originalPicker.presentingViewController ? self.originalPicker : self.presenter;
     if (presenter && !presenter.presentedViewController) {
         [presenter presentViewController:alert animated:YES completion:nil];
     } else {
@@ -66,7 +70,13 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
     }
 }
 
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentAtURL:(NSURL *)url {
+    [self documentPicker:controller didPickDocumentsAtURLs:@[url]];
+}
+
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    if (self.processing) return;
+    self.processing = YES;
     NSURL *source = urls.firstObject;
     if (!source) {
         [self documentPickerWasCancelled:controller];
@@ -114,6 +124,31 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
         }];
         if (scoped) [source stopAccessingSecurityScopedResource];
         if (!staged && !failure) failure = coordinationError.localizedDescription ?: @"File provider access failed.";
+        __block UIImage *decodedImage = nil;
+        if (staged) {
+            CGImageSourceRef imageSource = CGImageSourceCreateWithURL((__bridge CFURLRef)staged, NULL);
+            if (imageSource) {
+                NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(imageSource, 0, NULL));
+                unsigned long long width = [properties[(__bridge NSString *)kCGImagePropertyPixelWidth] unsignedLongLongValue];
+                unsigned long long height = [properties[(__bridge NSString *)kCGImagePropertyPixelHeight] unsignedLongLongValue];
+                if (!width || !height || width > 12000 || height > 12000 || width * height > 32000000) {
+                    failure = @"Image dimensions exceed the 32 megapixel memory limit.";
+                } else {
+                    decodedImage = [UIImage imageWithContentsOfFile:staged.path];
+                    if (!decodedImage) failure = @"The image could not be decoded.";
+                }
+                CFRelease(imageSource);
+            } else {
+                AVURLAsset *asset = [AVURLAsset URLAssetWithURL:staged options:nil];
+                if ([asset tracksWithMediaType:AVMediaTypeVideo].count == 0) {
+                    failure = @"The file contains no readable image or video track.";
+                }
+            }
+            if (failure) {
+                [[NSFileManager defaultManager] removeItemAtURL:staged.URLByDeletingLastPathComponent error:nil];
+                staged = nil;
+            }
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
             void (^finish)(void) = ^{
                 if (!staged) {
@@ -138,7 +173,7 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
                 }
                 NSMutableDictionary *info = [NSMutableDictionary dictionary];
                 if (image) {
-                    UIImage *uiImage = [UIImage imageWithContentsOfFile:file.path];
+                    UIImage *uiImage = decodedImage;
                     if (!uiImage) {
                         [[NSFileManager defaultManager] removeItemAtURL:file.URLByDeletingLastPathComponent error:nil];
                         [keepAlive showFailure:@"The image could not be decoded."];
@@ -186,9 +221,13 @@ static void PPPruneOldFiles(void) {
 
 @implementation UIViewController (PickerPatcher)
 - (void)pp_presentViewController:(UIViewController *)viewController animated:(BOOL)animated completion:(void (^)(void))completion {
+    if (objc_getAssociatedObject(viewController, &PPBypassKey)) {
+        objc_setAssociatedObject(viewController, &PPBypassKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        [self pp_presentViewController:viewController animated:animated completion:completion];
+        return;
+    }
     if ([[NSUserDefaults standardUserDefaults] boolForKey:@"PickerPatcherDisabled"] ||
         [[NSFileManager defaultManager] fileExistsAtPath:PPDisableFlag] ||
-        objc_getAssociatedObject(viewController, &PPBypassKey) ||
         ![viewController isKindOfClass:[UIImagePickerController class]]) {
         [self pp_presentViewController:viewController animated:animated completion:completion];
         return;
@@ -214,41 +253,66 @@ static void PPPruneOldFiles(void) {
         return;
     }
     UIAlertController *choice = [UIAlertController alertControllerWithTitle:@"Select media"
-        message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+        message:@"Choose Photos or Files. Files supports a single image or video." preferredStyle:UIAlertControllerStyleActionSheet];
     __weak UIViewController *weakPresenter = self;
-    [choice addAction:[UIAlertAction actionWithTitle:@"Photo Library" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+    __weak UIAlertController *weakChoice = choice;
+    void (^afterChoice)(void (^)(UIViewController *)) = ^(void (^next)(UIViewController *)) {
         UIViewController *presenter = weakPresenter;
+        UIAlertController *sheet = weakChoice;
         if (!presenter) return;
-        objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [presenter presentViewController:picker animated:animated completion:completion];
+        void (^run)(void) = ^{ next(presenter); };
+        if (sheet.presentingViewController) [sheet dismissViewControllerAnimated:YES completion:run];
+        else dispatch_async(dispatch_get_main_queue(), run);
+    };
+    [choice addAction:[UIAlertAction actionWithTitle:@"Photo Library" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        afterChoice(^(UIViewController *presenter) {
+            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [presenter presentViewController:picker animated:animated completion:completion];
+        });
     }]];
     [choice addAction:[UIAlertAction actionWithTitle:@"Browse Files" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        UIViewController *presenter = weakPresenter;
-        if (!presenter) return;
-        PPDocumentBridge *bridge = [[PPDocumentBridge alloc] initWithPicker:picker presenter:presenter];
-        NSMutableArray<UTType *> *types = [NSMutableArray array];
-        BOOL imageAllowed = picker.mediaTypes.count == 0;
-        BOOL movieAllowed = NO;
-        for (NSString *identifier in picker.mediaTypes) {
-            UTType *accepted = [UTType typeWithIdentifier:identifier];
-            imageAllowed |= [accepted conformsToType:UTTypeImage];
-            movieAllowed |= [accepted conformsToType:UTTypeMovie];
-        }
-        if (imageAllowed) [types addObject:UTTypeImage];
-        if (movieAllowed) [types addObject:UTTypeMovie];
-        if (types.count == 0) [types addObject:UTTypeImage];
-        UIDocumentPickerViewController *document = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types];
-        document.allowsMultipleSelection = NO;
-        document.delegate = bridge;
-        bridge.documentPicker = document;
-        objc_setAssociatedObject(document, &PPBridgeKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        [presenter presentViewController:document animated:animated completion:completion];
+        afterChoice(^(UIViewController *presenter) {
+            PPDocumentBridge *bridge = [[PPDocumentBridge alloc] initWithPicker:picker presenter:presenter];
+            NSMutableArray<UTType *> *types = [NSMutableArray array];
+            BOOL imageAllowed = picker.mediaTypes.count == 0;
+            BOOL movieAllowed = NO;
+            for (NSString *identifier in picker.mediaTypes) {
+                UTType *accepted = [UTType typeWithIdentifier:identifier];
+                imageAllowed |= [accepted conformsToType:UTTypeImage];
+                movieAllowed |= [accepted conformsToType:UTTypeMovie];
+            }
+            if (imageAllowed) [types addObject:UTTypeImage];
+            if (movieAllowed) [types addObject:UTTypeMovie];
+            UIDocumentPickerViewController *document = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:YES];
+            document.allowsMultipleSelection = NO;
+            document.shouldShowFileExtensions = YES;
+            document.delegate = bridge;
+            bridge.documentPicker = document;
+            // The original UIImagePickerController remains a real presented
+            // controller. Its delegate may dismiss that exact object, inspect its
+            // presenter, or start uploading in its dismissal completion block.
+            objc_setAssociatedObject(document, &PPBridgeKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, &PPBridgeKey, bridge, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [presenter presentViewController:picker animated:NO completion:^{
+                NSString *testFolder = [[NSUserDefaults standardUserDefaults] stringForKey:@"PickerPatcherTestDirectory"];
+                if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"dev.pickerpatcher.bridgehost"] && testFolder) {
+                    document.directoryURL = [NSURL fileURLWithPath:testFolder isDirectory:YES];
+                }
+                [picker presentViewController:document animated:animated completion:completion];
+            }];
+        });
     }]];
     [choice addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action) {
-        id<UIImagePickerControllerDelegate> delegate = picker.delegate;
-        if ([delegate respondsToSelector:@selector(imagePickerControllerDidCancel:)]) {
-            [delegate imagePickerControllerDidCancel:picker];
-        }
+        afterChoice(^(UIViewController *presenter) {
+            objc_setAssociatedObject(picker, &PPBypassKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+            [presenter presentViewController:picker animated:NO completion:^{
+                if (completion) completion();
+                id<UIImagePickerControllerDelegate> delegate = picker.delegate;
+                if ([delegate respondsToSelector:@selector(imagePickerControllerDidCancel:)]) [delegate imagePickerControllerDidCancel:picker];
+                else [picker dismissViewControllerAnimated:YES completion:nil];
+            }];
+        });
     }]];
     UIPopoverPresentationController *popover = choice.popoverPresentationController;
     if (popover) {

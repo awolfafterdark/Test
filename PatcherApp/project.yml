@@ -12,7 +12,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-      - path: Resources/Payload.zip
+      - path: Resources
         buildPhase: resources
       - path: Assets.xcassets
         buildPhase: resources
@@ -20,7 +20,7 @@ targets:
       - package: ZIPFoundation
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.app.v05
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.app.v06
         INFOPLIST_FILE: Info.plist
         SWIFT_VERSION: '5.0'
         TARGETED_DEVICE_FAMILY: '1,2'
@@ -29,3 +29,88 @@ targets:
         CODE_SIGN_STYLE: Manual
         ENABLE_BITCODE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  PickerHarness:
+    type: application
+    platform: iOS
+    sources:
+      - ../Harness
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.demo
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Picker Harness
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Test the Photos and Files picker callback contract.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        IPHONEOS_DEPLOYMENT_TARGET: '15.0'
+        TARGETED_DEVICE_FAMILY: '1,2'
+        OTHER_LDFLAGS: '-Wl,-headerpad,0x1000 -framework PhotosUI -framework UniformTypeIdentifiers'
+        CODE_SIGNING_ALLOWED: NO
+        CLANG_ENABLE_OBJC_ARC: YES
+  PickerBridgeHost:
+    type: application
+    platform: iOS
+    sources:
+      - ../Harness
+      - ../Core/PickerPatcher.m
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.bridgehost
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Picker Bridge Test
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Test the Photos and Files picker callback contract.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        IPHONEOS_DEPLOYMENT_TARGET: '15.0'
+        TARGETED_DEVICE_FAMILY: '1,2'
+        CLANG_ENABLE_OBJC_ARC: YES
+        OTHER_LDFLAGS: '-framework PhotosUI -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation'
+        CODE_SIGNING_ALLOWED: NO
+  ImportPickerTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests/PickerTests.swift
+    dependencies:
+      - target: PickerPatcherApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.import-tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PickerPatcherApp
+        SWIFT_VERSION: '5.0'
+        CODE_SIGNING_ALLOWED: NO
+  BridgePickerTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests/PickerTests.swift
+    dependencies:
+      - target: PickerBridgeHost
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.pickerpatcher.bridge-tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PickerBridgeHost
+        SWIFT_VERSION: '5.0'
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  PickerPatcherApp:
+    build:
+      targets:
+        PickerPatcherApp: all
+    test:
+      targets:
+        - name: ImportPickerTests
+          skippedTests:
+            - BridgePickerTests
+  PickerBridgeHost:
+    build:
+      targets:
+        PickerBridgeHost: all
+    test:
+      targets:
+        - name: BridgePickerTests
+          skippedTests:
+            - ImportPickerTests

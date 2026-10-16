@@ -5,7 +5,7 @@
   <key>CFBundleExecutable</key><string>PickerPatcherEmbedded</string>
   <key>CFBundleName</key><string>PickerPatcherEmbedded</string>
   <key>CFBundlePackageType</key><string>FMWK</string>
-  <key>CFBundleShortVersionString</key><string>0.5.0</string>
+  <key>CFBundleShortVersionString</key><string>0.6.0</string>
   <key>CFBundleVersion</key><string>2</string>
   <key>MinimumOSVersion</key><string>15.0</string>
 </dict></plist>
