@@ -98,9 +98,12 @@ private func selectNativeFile(_ app: XCUIApplication, name: String, folders: [St
     let picked = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", name, stem)).firstMatch
     for folder in folders {
         if picked.waitForExistence(timeout: 2) { break }
-        let entry = app.collectionViews.staticTexts.matching(identifier: folder).firstMatch
+        let entry = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@", folder)).firstMatch
         if entry.waitForExistence(timeout: 5) { entry.tap() }
     }
     XCTAssertTrue(picked.waitForExistence(timeout: 20), "Native Files must show \(name). Hierarchy: \(app.debugDescription)", file: file, line: line)
-    picked.tap()
+    let cell = app.collectionViews.cells.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", name, stem)).firstMatch
+    XCTAssertTrue(cell.isHittable, "Native file icon must be on screen", file: file, line: line)
+    XCTAssertTrue(cell.isEnabled, "Files must enable the selected entry", file: file, line: line)
+    cell.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
 }

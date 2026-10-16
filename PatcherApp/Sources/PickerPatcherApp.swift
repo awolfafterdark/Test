@@ -107,6 +107,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         accept(controller, urls: [url], callback: "didPickDocumentAtURL")
     }
     private func accept(_ controller: UIDocumentPickerViewController, urls: [URL], callback: String) {
+        record("\(callback) received; active picker=\(picker != nil); controller matches=\(controller === picker); duplicate=\(didReceiveSelection)")
         guard controller === picker, !didReceiveSelection else { return }
         didReceiveSelection = true
         record("\(callback); count=\(urls.count)")

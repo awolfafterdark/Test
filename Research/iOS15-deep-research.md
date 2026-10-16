@@ -42,6 +42,10 @@ Official TrollStore RootHelper/main.m was reviewed. If an input main executable 
 - SerpApi: no callable connector, CLI, injected key or configured key store was available. No SerpApi result is claimed.
 - Mobile App Builder debugging workflow: separated UI, callback, access, patching and compatibility failures; added reproduction/test cases. It supplies no iOS framework evidence.
 
+## Simulator reproduction and test setup
+
+Native copy-import tests reproduced an enabled local IPA producing no callback, while native cancellation worked. Those Simulator applications had been built with CODE_SIGNING_ALLOWED=NO. Shipping IPA packaging already signs with an explicit identity. The final test pipeline separately builds for testing, ad-hoc signs the target app with that same explicit identity (get-task-allow=true for the Simulator only), then uses test-without-building to preserve that signature. It also taps the visible native file thumbnail, navigates the actual provider folders, uses explicit boolean plist file-sharing declarations, and exports File Provider logs. Because those corrections occur together, a success does not isolate one cause of the original iOS 15.3.1 problem.
+
 ## Duplicate loading
 
 A category-based swizzle stores UIKit's implementation under another Objective-C selector. Loading a second library with that same category can overwrite the saved selector before an initialization guard runs, producing recursion. The final engine uses a static C hook and saved IMP, with shared selector association keys and a process-level installation flag. The Simulator media host deliberately loads a second independent build of the core and runs its native file-selection/cancellation tests with both images loaded. The shipping IPA patcher does not contain this simulator-only dylib.

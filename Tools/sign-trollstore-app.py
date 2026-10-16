@@ -14,11 +14,13 @@ report = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 info = plistlib.loads((app / 'Info.plist').read_bytes())
 bundle_id = info['CFBundleIdentifier']
 assert bundle_id.startswith('dev.pickerpatcher.')
+assert info.get('UIFileSharingEnabled') is True
+assert info.get('LSSupportsOpeningDocumentsInPlace') is True
 team = 'PICKERPTCH'
 expected = {
     'application-identifier': f'{team}.{bundle_id}',
     'com.apple.developer.team-identifier': team,
-    'get-task-allow': False,
+    'get-task-allow': '--simulator' in sys.argv[3:],
 }
 with tempfile.TemporaryDirectory() as tmp:
     path = Path(tmp) / 'Entitlements.plist'
@@ -31,5 +33,5 @@ with tempfile.TemporaryDirectory() as tmp:
     actual = plistlib.loads(dump)
     assert actual == expected, actual
     if report:
-        report.write_text(json.dumps({'bundleIdentifier': bundle_id, 'entitlements': actual}, indent=2)+'\n')
+        report.write_text(json.dumps({'bundleIdentifier': bundle_id, 'entitlements': actual, 'fileSharing': info['UIFileSharingEnabled'], 'openingInPlace': info['LSSupportsOpeningDocumentsInPlace']}, indent=2)+'\n')
 print(f'Verified explicit ad-hoc identity for {bundle_id}')
