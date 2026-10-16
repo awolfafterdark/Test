@@ -17,8 +17,9 @@ final class ImportPickerTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--picker-uitest"]
         app.launch()
+        let displayName = app.navigationBars.firstMatch.identifier
         app.cells["chooseIPA"].tap()
-        selectNativeFile(app, name: "PickerHarness.ipa", folders: ["PickerPatcher 0.6", "Imports"])
+        selectNativeFile(app, name: "PickerHarness.ipa", folders: [displayName, "Imports"])
         let selected = app.staticTexts["statusMessage"]
         XCTAssertTrue(selected.waitForExistence(timeout: 20))
         let ready = NSPredicate(format: "label CONTAINS %@", "Ready to patch")
@@ -95,7 +96,7 @@ private func selectNativeFile(_ app: XCUIApplication, name: String, folders: [St
     let picked = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", name, stem)).firstMatch
     for folder in folders {
         if picked.waitForExistence(timeout: 2) { break }
-        let entry = app.collectionViews.staticTexts[folder].firstMatch
+        let entry = app.collectionViews.staticTexts.matching(identifier: folder).firstMatch
         if entry.waitForExistence(timeout: 5) { entry.tap() }
     }
     XCTAssertTrue(picked.waitForExistence(timeout: 20), "Native Files must show \(name). Hierarchy: \(app.debugDescription)", file: file, line: line)
