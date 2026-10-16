@@ -134,7 +134,7 @@ jobs:
             -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerHarnessDerived" \
             CODE_SIGNING_ALLOWED=NO build
           fixture="$RUNNER_TEMP/PickerHarnessDerived/Build/Products/Release-iphoneos/PickerHarness.app"
-          codesign --force --sign - --timestamp=none "$fixture"
+          python3 Tools/sign-trollstore-app.py "$fixture" dist/harness-signing.json
           mkdir -p "$RUNNER_TEMP/picker-harness/Payload"
           cp -R "$fixture" "$RUNNER_TEMP/picker-harness/Payload/"
           (cd "$RUNNER_TEMP/picker-harness" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/PatcherApp/Resources/PickerHarness.ipa")
@@ -147,8 +147,7 @@ jobs:
           test -f "$app/PickerPatcherApp"
           test -f "$app/Payload.zip"
           test -f "$app/Assets.car"
-          codesign --force --sign - --timestamp=none "$app"
-          codesign --verify --strict "$app"
+          python3 Tools/sign-trollstore-app.py "$app" dist/patcher-signing.json
           mkdir -p "$RUNNER_TEMP/pickerpatcher-ipa/Payload"
           cp -R "$app" "$RUNNER_TEMP/pickerpatcher-ipa/Payload/"
           (cd "$RUNNER_TEMP/pickerpatcher-ipa" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/dist/PickerPatcherApp-TrollStore.ipa")

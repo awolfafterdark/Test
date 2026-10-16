@@ -91,6 +91,12 @@ enum IPAPatcher {
         guard fm.fileExists(atPath: executable.path) else {
             throw PatchFailure.invalid("Main app executable is missing.")
         }
+        let detection = try detectPickers(in: app, mainExecutable: executable)
+        guard detection.legacy else {
+            throw PatchFailure.invalid(detection.modern
+                ? "This IPA references PHPicker but no supported UIImagePickerController was found. Its modern picker needs an app-specific adapter; this build would not change it."
+                : "No supported UIImagePickerController reference was found in the app binaries. A custom picker adapter may be required.")
+        }
         let target = app.appendingPathComponent("Frameworks/PickerPatcherEmbedded.framework", isDirectory: true)
         guard !fm.fileExists(atPath: target.path),
               let payload = Bundle.main.url(forResource: "Payload", withExtension: "zip") else {
@@ -113,6 +119,14 @@ enum IPAPatcher {
         guard patched == 0 else {
             throw PatchFailure.invalid(String(cString: error))
         }
+        let manifest: [String: Any] = [
+            "pickerPatcherVersion": "0.6.0", "bundleIdentifier": bundleID,
+            "adapter": "UIImagePickerController", "apiReferenceDetection": "heuristic",
+            "legacyPickerReference": detection.legacy, "modernPickerReference": detection.modern,
+            "uploadCompatibilityVerified": false, "requiresTrollStoreSigning": true
+        ]
+        try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            .write(to: stage.appendingPathComponent("PickerPatcher-manifest.json"), options: .atomic)
         let output = results.appendingPathComponent("\(bundleID)-\(UUID().uuidString.prefix(8)).ipa")
         let partial = workspace.appendingPathComponent("output.ipa")
         try fm.zipItem(at: stage, to: partial, shouldKeepParent: false, compressionMethod: .deflate)
@@ -120,4 +134,26 @@ enum IPAPatcher {
         try fm.moveItem(at: partial, to: output)
         return output
     }
+    private static func detectPickers(in app: URL, mainExecutable: URL) throws -> (legacy: Bool, modern: Bool) {
+        var candidates = [mainExecutable]
+        let frameworks = app.appendingPathComponent("Frameworks", isDirectory: true)
+        if let enumerator = fm.enumerator(at: frameworks, includingPropertiesForKeys: [.isRegularFileKey]) {
+            for case let url as URL in enumerator {
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+                candidates.append(url)
+            }
+        }
+        var legacy = false, modern = false
+        for url in candidates {
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            let magic = try? handle.read(upToCount: 4)
+            try? handle.close()
+            guard magic == Data([0xcf, 0xfa, 0xed, 0xfe]) || magic == Data([0xca, 0xfe, 0xba, 0xbe]) else { continue }
+            let data = try Data(contentsOf: url, options: .alwaysMapped)
+            legacy = legacy || data.range(of: Data("UIImagePickerController".utf8)) != nil
+            modern = modern || data.range(of: Data("PHPickerViewController".utf8)) != nil
+        }
+        return (legacy, modern)
+    }
+
 }

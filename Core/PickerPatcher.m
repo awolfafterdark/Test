@@ -96,8 +96,11 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
             NSDictionary *fs = [[NSFileManager defaultManager] attributesOfFileSystemForPath:NSTemporaryDirectory() error:nil];
             unsigned long long freeBytes = [fs[NSFileSystemFreeSize] unsignedLongLongValue];
             unsigned long long needed = bytes.unsignedLongLongValue;
+            NSString *temporaryPrefix = [[NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES].URLByResolvingSymlinksInPath.path stringByAppendingString:@"/"];
+            BOOL ownTemporaryCopy = [readURL.URLByResolvingSymlinksInPath.path hasPrefix:temporaryPrefix];
+            unsigned long long additional = ownTemporaryCopy ? 0 : needed;
             if (!bytes || needed == 0 || needed > 2ULL * 1024 * 1024 * 1024 ||
-                needed > freeBytes || freeBytes - needed < 256ULL * 1024 * 1024) {
+                additional > freeBytes || freeBytes - additional < 256ULL * 1024 * 1024) {
                 failure = @"The file size is unknown, too large, or there is too little free space.";
                 return;
             }
@@ -115,7 +118,10 @@ static NSString *const PPDisableFlag = @"/var/jb/Library/PickerPatcher/disabled"
                 return;
             }
             NSURL *destination = [session URLByAppendingPathComponent:source.lastPathComponent ?: @"media"];
-            if (![[NSFileManager defaultManager] copyItemAtURL:readURL toURL:destination error:&error]) {
+            BOOL stored = ownTemporaryCopy
+                ? [[NSFileManager defaultManager] moveItemAtURL:readURL toURL:destination error:&error]
+                : [[NSFileManager defaultManager] copyItemAtURL:readURL toURL:destination error:&error];
+            if (!stored) {
                 failure = error.localizedDescription;
                 [[NSFileManager defaultManager] removeItemAtURL:session error:nil];
                 return;
@@ -326,7 +332,12 @@ static void PPPruneOldFiles(void) {
 __attribute__((constructor)) static void PickerPatcherStart(void) {
     @autoreleasepool {
         if ([NSBundle.mainBundle.bundleIdentifier hasPrefix:@"com.apple."]) return;
-        PPPruneOldFiles();
+        // The same process may accidentally load both a runtime tweak and an
+        // embedded copy. A selector key is shared across dynamic images.
+        const void *hookKey = NSSelectorFromString(@"PickerPatcherInstalledV06");
+        if (objc_getAssociatedObject(UIViewController.class, hookKey)) return;
+        objc_setAssociatedObject(UIViewController.class, hookKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ PPPruneOldFiles(); });
         Method original = class_getInstanceMethod(UIViewController.class, @selector(presentViewController:animated:completion:));
         Method replacement = class_getInstanceMethod(UIViewController.class, @selector(pp_presentViewController:animated:completion:));
         if (original && replacement) method_exchangeImplementations(original, replacement);

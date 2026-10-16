@@ -42,6 +42,8 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         navigationItem.largeTitleDisplayMode = .always
         navigationController?.navigationBar.prefersLargeTitles = true
         NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: UIApplication.didBecomeActiveNotification, object: nil)
+        let previousLog = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("PickerPatcher-diagnostics.txt")
+        events = (try? String(contentsOf: previousLog, encoding: .utf8))?.split(separator: "\n").suffix(100).map(String.init) ?? []
         record("launch iOS \(UIDevice.current.systemVersion); build 0.6.0 (6)")
         do {
             try fm.createDirectory(at: imports, withIntermediateDirectories: true)

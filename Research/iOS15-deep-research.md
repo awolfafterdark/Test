@@ -25,6 +25,13 @@
 
 Secondary discovery only (not treated as authoritative API guarantees): https://stackoverflow.com/questions/54234901/uidocumentpickerdelegate-methoddidpickdocumentsat-not-called-by-ios
 
+## Signing review
+
+Official TrollStore RootHelper/main.m was reviewed. If an input main executable has no entitlement dictionary, TrollStore supplies a fallback application identity `TROLLTROLL.*`; it also handles container entitlements. That code does not prove signing caused this device's picker failure. Version 0.6 supplies and verifies an explicit application-identifier matching our actual bundle ID, a deterministic team prefix, and get-task-allow=false; DER entitlements are generated. No no-sandbox, platform-application, or broad file-access entitlement is added. The exact generated values are uploaded as JSON. This is ad-hoc packaging intended for TrollStore, not conventional App Store/provisioned signing.
+
+- https://github.com/opa334/TrollStore/blob/main/RootHelper/main.m
+- https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles
+
 ## Research service coverage
 
 - Parallel Search: searched modal presentation, TrollStore and iOS 15 symptoms; retrieved Apple API descriptions and distinct failure reports.

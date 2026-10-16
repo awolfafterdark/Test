@@ -37,7 +37,7 @@ If tapping still has no effect, cancel and use **Try compatibility import** (the
 
 Local fallback: copy an IPA in Files to **On My iPod → PickerPatcher 0.6 → Imports**, tap **Refresh local IPAs**, tap its filename, then **Patch selected IPA**. Open In from Files is also handled. Imported and exported IPAs persist until deleted; delete unused files in Files when storage is low. The original input is not overwritten.
 
-The on-device patcher supports thin arm64 main executables with free Mach-O header space. It rejects encrypted executables, app extensions, nested apps, unsafe ZIP paths, and insufficient disk space. It cannot retrieve or decrypt already installed apps. Apps with integrity checks or unusual entitlements may still fail installation or launch. Test each patched app's actual upload flow.
+The on-device patcher supports thin arm64 main executables with free Mach-O header space. It rejects encrypted executables, app extensions, nested apps, unsafe ZIP paths, insufficient disk space, and IPAs with no detectable supported UIKit picker reference. API reference detection is a heuristic, not an upload compatibility test. An exported manifest states that limitation. It cannot retrieve or decrypt already installed apps. Apps with integrity checks or unusual entitlements may still fail installation or launch. Test each patched app's actual upload flow.
 
 ## Picker compatibility
 

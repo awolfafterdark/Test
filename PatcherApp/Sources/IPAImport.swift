@@ -16,7 +16,7 @@ enum IPAImport {
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
         var coordinationError: NSError?
         var copyResult: Result<URL, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: source, options: [], error: &coordinationError) { readable in
             copyResult = Result {
                 let values = try readable.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
                 guard values.isRegularFile == true, let size = values.fileSize, size > 0 else {
@@ -24,7 +24,10 @@ enum IPAImport {
                 }
                 let attrs = try fm.attributesOfFileSystem(forPath: imports.path)
                 let free = (attrs[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
-                guard free > Int64(size) + 128 * 1024 * 1024 else {
+                let tempPrefix = fm.temporaryDirectory.resolvingSymlinksInPath().path + "/"
+                let ownTemporaryCopy = readable.resolvingSymlinksInPath().path.hasPrefix(tempPrefix)
+                let additional = ownTemporaryCopy ? Int64(0) : Int64(size)
+                guard free > additional + 128 * 1024 * 1024 else {
                     throw PatchFailure.invalid("Not enough space to import this IPA safely.")
                 }
                 var target = imports.appendingPathComponent(source.lastPathComponent)
@@ -32,7 +35,8 @@ enum IPAImport {
                     target = imports.appendingPathComponent("\(source.deletingPathExtension().lastPathComponent)-\(UUID().uuidString.prefix(6)).ipa")
                 }
                 do {
-                    try fm.copyItem(at: readable, to: target)
+                    if ownTemporaryCopy { try fm.moveItem(at: readable, to: target) }
+                    else { try fm.copyItem(at: readable, to: target) }
                     guard fm.isReadableFile(atPath: target.path) else { throw PatchFailure.invalid("Imported file is unreadable.") }
                     return target
                 } catch { try? fm.removeItem(at: target); throw error }
