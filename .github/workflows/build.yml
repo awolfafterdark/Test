@@ -20,17 +20,13 @@ on:
         required: true
         default: 'dev.pickerpatcher.demo'
         type: string
-      ipa_url:
-        description: 'Optional URL for a user-provided unencrypted IPA'
-        required: false
-        type: string
       app_display_name:
         description: 'Optional name shown under the on-device patcher icon'
         required: false
         default: 'PickerPatcher'
         type: string
-      icon_jpg_url:
-        description: 'Optional HTTPS URL to a JPEG for the on-device patcher icon'
+      icon_image_url:
+        description: 'Optional direct HTTPS URL to a JPG or PNG for the patcher icon'
         required: false
         type: string
 
@@ -41,8 +37,6 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 45
-    env:
-      SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
     steps:
       - name: Checkout PickerPatcher
         uses: actions/checkout@v4
@@ -106,18 +100,24 @@ jobs:
       - name: Build on-device patcher IPA for TrollStore
         env:
           APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher' }}
-          ICON_JPG_URL: ${{ inputs.icon_jpg_url || '' }}
+          ICON_IMAGE_URL: ${{ inputs.icon_image_url || '' }}
         run: |
           set -euo pipefail
           python3 Tools/configure_app.py "$APP_DISPLAY_NAME"
-          if [ -n "$ICON_JPG_URL" ]; then
+          if [ -n "$ICON_IMAGE_URL" ]; then
             curl --fail --location --proto '=https' --proto-redir '=https' \
-              --max-time 90 --max-filesize 10000000 "$ICON_JPG_URL" -o "$RUNNER_TEMP/custom-icon.jpg"
-            sips -g format "$RUNNER_TEMP/custom-icon.jpg" | grep -qi 'format: jpeg'
-            swift Tools/make_app_icon.swift "$RUNNER_TEMP/custom-icon.jpg"
+              --max-time 90 --max-filesize 10000000 "$ICON_IMAGE_URL" -o "$RUNNER_TEMP/custom-icon"
+            icon_format="$(sips -g format "$RUNNER_TEMP/custom-icon" | awk '/format:/ {print tolower($2)}')"
+            case "$icon_format" in
+              jpeg|png) mv "$RUNNER_TEMP/custom-icon" "$RUNNER_TEMP/custom-icon.$icon_format" ;;
+              *) echo 'Icon URL must return a valid JPG or PNG image' >&2; exit 1 ;;
+            esac
+            swift Tools/make_app_icon.swift "$RUNNER_TEMP/custom-icon.$icon_format"
           else
             swift Tools/make_app_icon.swift
-            # Exercise JPEG decoding/cropping even when the optional URL is empty.
+            # Exercise PNG and JPEG decoding/cropping even with no custom URL.
+            swift Tools/make_app_icon.swift \
+              PatcherApp/Assets.xcassets/AppIcon.appiconset/Icon-ios-marketing-1024x1024-1x.png
             sips -s format jpeg PatcherApp/Assets.xcassets/AppIcon.appiconset/Icon-ios-marketing-1024x1024-1x.png \
               --out "$RUNNER_TEMP/icon-smoke.jpg" >/dev/null
             swift Tools/make_app_icon.swift "$RUNNER_TEMP/icon-smoke.jpg"
@@ -140,54 +140,6 @@ jobs:
           cp -R "$app" "$RUNNER_TEMP/pickerpatcher-ipa/Payload/"
           (cd "$RUNNER_TEMP/pickerpatcher-ipa" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/dist/PickerPatcherApp-TrollStore.ipa")
           unzip -t dist/PickerPatcherApp-TrollStore.ipa >/dev/null
-
-      - name: Download optional IPA
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' }}
-        env:
-          IPA_URL: ${{ inputs.ipa_url }}
-        run: |
-          set -euo pipefail
-          curl --fail --location --max-time 300 --max-filesize 2000000000 "$IPA_URL" -o input.ipa
-          unzip -t input.ipa >/dev/null
-
-      - name: Configure optional signing identity
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY != '' }}
-        env:
-          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          ENTITLEMENTS_BASE64: ${{ secrets.ENTITLEMENTS_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          set -euo pipefail
-          for name in SIGN_IDENTITY BUILD_CERTIFICATE_BASE64 P12_PASSWORD BUILD_PROVISION_PROFILE_BASE64 ENTITLEMENTS_BASE64 KEYCHAIN_PASSWORD; do
-            test -n "${!name}" || { echo "Missing signing secret: $name" >&2; exit 1; }
-          done
-          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 -D > "$RUNNER_TEMP/certificate.p12"
-          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | base64 -D > "$RUNNER_TEMP/profile.mobileprovision"
-          printf '%s' "$ENTITLEMENTS_BASE64" | base64 -D > "$RUNNER_TEMP/entitlements.plist"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security import "$RUNNER_TEMP/certificate.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security list-keychain -d user -s "$RUNNER_TEMP/pickerpatcher.keychain-db"
-
-      - name: Patch and sign optional IPA
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY != '' }}
-        env:
-          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
-        run: |
-          python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/pp-inject --out dist/PickerPatcher-signed.ipa \
-            --sign-identity "$SIGN_IDENTITY" --profile "$RUNNER_TEMP/profile.mobileprovision" \
-            --entitlements "$RUNNER_TEMP/entitlements.plist"
-
-      - name: Patch optional IPA for external signing
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY == '' }}
-        run: |
-          python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/pp-inject --out dist/PickerPatcher-unsigned.ipa
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

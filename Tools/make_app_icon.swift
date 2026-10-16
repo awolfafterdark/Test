@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-// Run on macOS before XcodeGen. An optional JPEG is center-cropped to a square.
+// Run in GitHub Actions before XcodeGen. An optional JPEG or PNG is center-cropped.
 // App Store icon slots are generated as opaque PNGs in an asset catalog.
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let catalog = root.appendingPathComponent("PatcherApp/Assets.xcassets/AppIcon.appiconset", isDirectory: true)
@@ -11,7 +11,7 @@ let source: NSImage?
 if CommandLine.arguments.count > 1 {
     guard let image = NSImage(contentsOfFile: CommandLine.arguments[1]),
           image.size.width > 0, image.size.height > 0 else {
-        fputs("Could not decode the supplied JPEG.\n", stderr)
+        fputs("Could not decode the supplied JPEG or PNG.\n", stderr)
         exit(2)
     }
     source = image
