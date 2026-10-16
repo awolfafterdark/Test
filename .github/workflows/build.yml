@@ -215,6 +215,41 @@ jobs:
             fi
           fi
 
+      - name: Prepare complete GitHub source archive
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          paths = [".github/workflows/build.yml",".gitignore","Core/MachOInject.c","Core/MachOInject.h","Core/PickerPatcher.m","Embedded/Info.plist","Harness/Info.plist","Harness/main.m","Makefile","PatcherApp/Info.plist","PatcherApp/Sources/Bridging.h","PatcherApp/Sources/IPAImport.swift","PatcherApp/Sources/IPAPatcher.swift","PatcherApp/Sources/PickerPatcherApp.swift","PatcherApp/UITests/PickerTests.swift","PatcherApp/project.yml","PickerPatcher.plist","README.md","Research/iOS15-deep-research.md","Research/iOS15-feasibility.md","Research/iOS15-picker-diagnosis.md","Tests/test_macho_inject.py","Tools/build-embedded.sh","Tools/configure_app.py","Tools/make_app_icon.swift","Tools/patch_ipa.py","Tools/sign-trollstore-app.py","configure-target.py","control"]
+          root = Path("source-for-github")
+          for name in paths:
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(name, target)
+          PY
+
+      - name: Upload complete GitHub source ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PickerPatcher-GitHub-ready-iOS15-0.6.0
+          path: source-for-github/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload installable IPA and tweak ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PickerPatcher-installables-iOS15-0.6.0
+          path: |
+            dist/*.ipa
+            dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
