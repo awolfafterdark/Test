@@ -117,6 +117,11 @@ jobs:
             swift Tools/make_app_icon.swift "$RUNNER_TEMP/custom-icon.jpg"
           else
             swift Tools/make_app_icon.swift
+            # Exercise JPEG decoding/cropping even when the optional URL is empty.
+            sips -s format jpeg PatcherApp/Assets.xcassets/AppIcon.appiconset/Icon-ios-marketing-1024x1024-1x.png \
+              --out "$RUNNER_TEMP/icon-smoke.jpg" >/dev/null
+            swift Tools/make_app_icon.swift "$RUNNER_TEMP/icon-smoke.jpg"
+            swift Tools/make_app_icon.swift
           fi
           mkdir -p PatcherApp/Resources
           (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)

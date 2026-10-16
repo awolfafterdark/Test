@@ -67,6 +67,20 @@ people with repository access. Do not put a signing certificate in source.
 ## Local macOS build
 
 Requires full Xcode, Theos, GNU Make, `dpkg`, `ldid`, and XcodeGen.
+On macOS with Homebrew, the single build script installs missing command-line
+tools, checks out the pinned Theos revision, and produces both artifacts:
+
+```sh
+TARGET_BUNDLE_IDS='com.example.target' \
+APP_DISPLAY_NAME='My Patcher' \
+ICON_JPG_URL='https://example.com/my-icon.jpg' \
+bash Tools/build-all-macos.sh
+```
+
+Omit `APP_DISPLAY_NAME` and `ICON_JPG_URL` for defaults. The JPEG must be a
+direct public HTTPS image URL. Results appear in `dist/`.
+
+Manual steps, if you already have Theos configured:
 
 ```sh
 python3 configure-target.py 'com.example.first,com.example.second'
