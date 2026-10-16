@@ -18,9 +18,7 @@ final class ImportPickerTests: XCTestCase {
         app.launchArguments = ["--picker-uitest"]
         app.launch()
         app.cells["chooseIPA"].tap()
-        let file = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerHarness.ipa", "PickerHarness")).firstMatch
-        XCTAssertTrue(file.waitForExistence(timeout: 25), "Seeded IPA must appear in native Files picker")
-        file.tap()
+        selectNativeFile(app, name: "PickerHarness.ipa", folders: ["PickerPatcher 0.6", "Imports"])
         let selected = app.staticTexts["statusMessage"]
         XCTAssertTrue(selected.waitForExistence(timeout: 20))
         let ready = NSPredicate(format: "label CONTAINS %@", "Ready to patch")
@@ -39,7 +37,7 @@ final class ImportPickerTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         app.staticTexts["Try compatibility import"].tap()
-        let cancel = app.buttons["Cancel"].firstMatch
+        let cancel = app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 20))
         cancel.tap()
         let status = app.staticTexts["statusMessage"]
@@ -68,9 +66,7 @@ final class BridgePickerTests: XCTestCase {
         let files = app.buttons["Browse Files"]
         XCTAssertTrue(files.waitForExistence(timeout: 10))
         files.tap()
-        let file = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerBridge.png", "PickerBridge")).firstMatch
-        XCTAssertTrue(file.waitForExistence(timeout: 25), "Seeded image must appear in native Files picker")
-        file.tap()
+        selectNativeFile(app, name: "PickerBridge.png", folders: ["Picker Bridge Test", "Fixtures"])
         let result = app.staticTexts["harnessResult"]
         expectation(for: NSPredicate(format: "label BEGINSWITH %@", "PASS image; presenter=yes; dismiss=yes; bytes="), evaluatedWith: result)
         waitForExpectations(timeout: 25)
@@ -84,10 +80,24 @@ final class BridgePickerTests: XCTestCase {
         app.launch()
         app.buttons["harnessImage"].tap()
         app.buttons["Browse Files"].tap()
-        let cancel = app.buttons["Cancel"].firstMatch
+        let cancel = app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 20))
         cancel.tap()
         expectation(for: NSPredicate(format: "label == %@", "PASS cancel; presenter=yes; dismiss=yes"), evaluatedWith: app.staticTexts["harnessResult"])
         waitForExpectations(timeout: 20)
     }
+}
+
+// directoryURL is a suggested starting location. Files may show the parent
+// container on a fresh installation. Navigate visible folders through its UI.
+private func selectNativeFile(_ app: XCUIApplication, name: String, folders: [String], file: StaticString = #filePath, line: UInt = #line) {
+    let stem = (name as NSString).deletingPathExtension
+    let picked = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", name, stem)).firstMatch
+    for folder in folders {
+        if picked.waitForExistence(timeout: 2) { break }
+        let entry = app.collectionViews.staticTexts[folder].firstMatch
+        if entry.waitForExistence(timeout: 5) { entry.tap() }
+    }
+    XCTAssertTrue(picked.waitForExistence(timeout: 20), "Native Files must show \(name). Hierarchy: \(app.debugDescription)", file: file, line: line)
+    picked.tap()
 }
