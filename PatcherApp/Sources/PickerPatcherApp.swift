@@ -144,6 +144,8 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
     func receive(_ url: URL, origin: String) {
         guard !busy else { return }
         busy = true
+        selected = nil
+        output = nil
         status = "Selection received. Making the IPA available locally…"
         record("selection received via \(origin)")
         if isViewLoaded { tableView.reloadData() }
@@ -168,6 +170,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
     private func patch() {
         guard !busy, let selected = selected else { return }
         busy = true
+        output = nil
         status = "Inspecting archive and patching…"
         record("patch started")
         tableView.reloadData()
