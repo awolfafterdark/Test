@@ -291,6 +291,7 @@ static void PPPruneOldFiles(void) {
             if (movieAllowed) [types addObject:UTTypeMovie];
             UIDocumentPickerViewController *document = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:YES];
             document.allowsMultipleSelection = NO;
+            document.modalPresentationStyle = UIModalPresentationFullScreen;
             document.shouldShowFileExtensions = YES;
             document.delegate = bridge;
             bridge.documentPicker = document;

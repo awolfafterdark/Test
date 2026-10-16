@@ -18,7 +18,7 @@ final class ImportPickerTests: XCTestCase {
         app.launchArguments = ["--picker-uitest"]
         app.launch()
         app.cells["chooseIPA"].tap()
-        let file = app.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerHarness.ipa", "PickerHarness")).firstMatch
+        let file = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerHarness.ipa", "PickerHarness")).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 25), "Seeded IPA must appear in native Files picker")
         file.tap()
         let selected = app.staticTexts["statusMessage"]
@@ -68,7 +68,7 @@ final class BridgePickerTests: XCTestCase {
         let files = app.buttons["Browse Files"]
         XCTAssertTrue(files.waitForExistence(timeout: 10))
         files.tap()
-        let file = app.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerBridge.png", "PickerBridge")).firstMatch
+        let file = app.collectionViews.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerBridge.png", "PickerBridge")).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 25), "Seeded image must appear in native Files picker")
         file.tap()
         let result = app.staticTexts["harnessResult"]
