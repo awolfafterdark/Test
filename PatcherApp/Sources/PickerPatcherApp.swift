@@ -204,7 +204,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         case (0, _): cell.textLabel?.text = "Build 0.6.0 (6) · iOS 15+"; cell.detailTextLabel?.text = "Native UIKit import · selection shown before patching"
         case (1, 0): cell.textLabel?.text = "Choose IPA from Files"; cell.accessibilityIdentifier = "chooseIPA"; action = true
         case (1, 1): cell.textLabel?.text = "Try compatibility import"; action = true
-        case (1, 2): cell.textLabel?.text = selected?.lastPathComponent ?? "No IPA selected"; cell.detailTextLabel?.text = status; cell.accessibilityIdentifier = "selectionStatus"
+        case (1, 2): cell.textLabel?.text = selected?.lastPathComponent ?? "No IPA selected"; cell.detailTextLabel?.text = status; cell.accessibilityIdentifier = "selectionStatus"; cell.detailTextLabel?.accessibilityIdentifier = "statusMessage"
         case (1, 3): cell.textLabel?.text = "Patch selected IPA"; cell.accessibilityIdentifier = "patchSelected"; action = selected != nil
         case (2, 0): cell.textLabel?.text = "Refresh local IPAs"; action = true
         case (2, 1): cell.textLabel?.text = "Files → On My iPod/iPhone → \(displayName) → Imports"; cell.detailTextLabel?.text = "You can also share an IPA from Files using Open In."
@@ -215,6 +215,11 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         case (4, 0): cell.textLabel?.text = "Share diagnostics"; action = true
         case (4, 1): cell.textLabel?.text = "Create picker test IPA"; cell.detailTextLabel?.text = "Copies a small, unencrypted test app into Imports. Select it through Files, then patch it."; cell.accessibilityIdentifier = "createFixture"; action = true
         default: cell.textLabel?.text = "Standard UIImagePickerController image/video flows only. PHPicker, editing, Photos asset identities and custom galleries retain their original UI."; cell.detailTextLabel?.text = "Actual target apps require upload testing."
+        }
+        if cell.accessibilityIdentifier == "selectionStatus" {
+            cell.isAccessibilityElement = false
+            cell.textLabel?.isAccessibilityElement = true
+            cell.detailTextLabel?.isAccessibilityElement = true
         }
         cell.selectionStyle = action && !busy ? .default : .none
         cell.textLabel?.textColor = action ? (busy ? .secondaryLabel : .systemBlue) : .label

@@ -2,6 +2,17 @@ import XCTest
 
 final class ImportPickerTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
+    override func tearDownWithError() throws {
+        let app = XCUIApplication()
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "Accessibility hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        print("UI at test end: \(app.debugDescription)")
+    }
     func testNativeFilesSelectionAndPatch() {
         let app = XCUIApplication()
         app.launchArguments = ["--picker-uitest"]
@@ -10,7 +21,7 @@ final class ImportPickerTests: XCTestCase {
         let file = app.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "PickerHarness.ipa", "PickerHarness")).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 25), "Seeded IPA must appear in native Files picker")
         file.tap()
-        let selected = app.cells["selectionStatus"]
+        let selected = app.staticTexts["statusMessage"]
         XCTAssertTrue(selected.waitForExistence(timeout: 20))
         let ready = NSPredicate(format: "label CONTAINS %@", "Ready to patch")
         expectation(for: ready, evaluatedWith: selected)
@@ -31,7 +42,7 @@ final class ImportPickerTests: XCTestCase {
         let cancel = app.buttons["Cancel"].firstMatch
         XCTAssertTrue(cancel.waitForExistence(timeout: 20))
         cancel.tap()
-        let status = app.cells["selectionStatus"]
+        let status = app.staticTexts["statusMessage"]
         expectation(for: NSPredicate(format: "label CONTAINS %@", "Selection cancelled"), evaluatedWith: status)
         waitForExpectations(timeout: 15)
     }
@@ -39,6 +50,17 @@ final class ImportPickerTests: XCTestCase {
 
 final class BridgePickerTests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
+    override func tearDownWithError() throws {
+        let app = XCUIApplication()
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "Accessibility hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        print("UI at test end: \(app.debugDescription)")
+    }
     func testFilesImageCallbackAndDismissal() {
         let app = XCUIApplication()
         app.launch()
