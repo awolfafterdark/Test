@@ -5,7 +5,11 @@ on:
     paths:
       - 'Core/**'
       - 'Embedded/**'
+      - 'PatcherApp/**'
+      - 'Tests/**'
+      - 'Harness/**'
       - 'Tools/**'
+      - 'configure-target.py'
       - 'Makefile'
       - 'control'
       - 'PickerPatcher.plist'
@@ -17,8 +21,13 @@ on:
         required: true
         default: 'dev.pickerpatcher.demo'
         type: string
-      ipa_url:
-        description: 'Optional URL for a user-provided unencrypted IPA'
+      app_display_name:
+        description: 'Optional name shown under the on-device patcher icon'
+        required: false
+        default: 'PickerPatcher 0.7'
+        type: string
+      icon_image_url:
+        description: 'Optional direct HTTPS URL to a JPG or PNG for the patcher icon'
         required: false
         type: string
 
@@ -29,11 +38,18 @@ jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 45
-    env:
-      SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
     steps:
       - name: Checkout PickerPatcher
         uses: actions/checkout@v4
+
+      - name: Verify project files are at repository root
+        run: |
+          set -euo pipefail
+          for path in configure-target.py Makefile Core/PickerPatcher.m \
+            Core/MachOInject.c Tools/build-embedded.sh \
+            PatcherApp/project.yml PatcherApp/Sources/IPAPatcher.swift; do
+            test -f "$path" || { echo "Missing $path at repository root" >&2; exit 1; }
+          done
 
       - name: Checkout pinned Theos
         uses: actions/checkout@v4
@@ -43,19 +59,12 @@ jobs:
           path: theos
           submodules: recursive
 
-      - name: Checkout pinned Mach-O injector
-        uses: actions/checkout@v4
-        with:
-          repository: tyilo/insert_dylib
-          ref: eb7278162af8fcc372e7f2946a2dee6a386b17d8
-          path: vendor/insert_dylib
-
       - name: Configure macOS toolchain
         run: |
           set -euo pipefail
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
-          brew install make dpkg ldid
+          brew install make dpkg ldid xcodegen
           echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           version="$(xcrun --sdk iphoneos --show-sdk-version)"
@@ -74,12 +83,11 @@ jobs:
           cp packages/*.deb dist/
           dpkg-deb --contents dist/*.deb | grep 'PickerPatcher.dylib'
 
-      - name: Build independent embedded framework and injector
+      - name: Build independent embedded framework and safe injector
         run: |
           set -euo pipefail
           bash Tools/build-embedded.sh "$PWD/dist"
-          xcrun clang -O2 -Wall -Wextra vendor/insert_dylib/insert_dylib/main.c -o dist/insert_dylib
-          chmod +x dist/insert_dylib
+          xcrun clang -O2 -Wall -Wextra -DPP_STANDALONE Core/MachOInject.c -o dist/pp-inject
           if otool -L dist/PickerPatcherEmbedded.framework/PickerPatcherEmbedded | grep -Ei 'substrate|ellekit'; then
             echo 'Embedded build unexpectedly depends on a jailbreak loader' >&2
             exit 1
@@ -87,55 +95,183 @@ jobs:
           cp Tools/patch_ipa.py dist/
           cp README.md dist/README.md
 
-      - name: Download optional IPA
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' }}
-        env:
-          IPA_URL: ${{ inputs.ipa_url }}
-        run: |
-          set -euo pipefail
-          curl --fail --location --max-time 300 --max-filesize 2000000000 "$IPA_URL" -o input.ipa
-          unzip -t input.ipa >/dev/null
+      - name: Check injector safety cases
+        run: python3 Tests/test_macho_inject.py
 
-      - name: Configure optional signing identity
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY != '' }}
+      - name: Build on-device patcher IPA for TrollStore
         env:
-          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
-          ENTITLEMENTS_BASE64: ${{ secrets.ENTITLEMENTS_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.7' }}
+          ICON_IMAGE_URL: ${{ inputs.icon_image_url || '' }}
         run: |
           set -euo pipefail
-          for name in SIGN_IDENTITY BUILD_CERTIFICATE_BASE64 P12_PASSWORD BUILD_PROVISION_PROFILE_BASE64 ENTITLEMENTS_BASE64 KEYCHAIN_PASSWORD; do
-            test -n "${!name}" || { echo "Missing signing secret: $name" >&2; exit 1; }
+          python3 Tools/configure_app.py "$APP_DISPLAY_NAME"
+          if [ -n "$ICON_IMAGE_URL" ]; then
+            curl --fail --location --proto '=https' --proto-redir '=https' \
+              --max-time 90 --max-filesize 10000000 "$ICON_IMAGE_URL" -o "$RUNNER_TEMP/custom-icon"
+            icon_format="$(sips -g format "$RUNNER_TEMP/custom-icon" | awk '/format:/ {print tolower($2)}')"
+            case "$icon_format" in
+              jpeg|png) mv "$RUNNER_TEMP/custom-icon" "$RUNNER_TEMP/custom-icon.$icon_format" ;;
+              *) echo 'Icon URL must return a valid JPG or PNG image' >&2; exit 1 ;;
+            esac
+            swift Tools/make_app_icon.swift "$RUNNER_TEMP/custom-icon.$icon_format"
+          else
+            swift Tools/make_app_icon.swift
+            # Exercise PNG and JPEG decoding/cropping even with no custom URL.
+            swift Tools/make_app_icon.swift \
+              PatcherApp/Assets.xcassets/AppIcon.appiconset/Icon-ios-marketing-1024x1024-1x.png
+            sips -s format jpeg PatcherApp/Assets.xcassets/AppIcon.appiconset/Icon-ios-marketing-1024x1024-1x.png \
+              --out "$RUNNER_TEMP/icon-smoke.jpg" >/dev/null
+            swift Tools/make_app_icon.swift "$RUNNER_TEMP/icon-smoke.jpg"
+            swift Tools/make_app_icon.swift
+          fi
+          mkdir -p PatcherApp/Resources PatcherApp/BridgeResources
+          # Test accidental runtime + embedded loading with a separately compiled
+          # simulator image. This dylib is a resource of the test host only.
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          simulator_arch="$(uname -m)"
+          xcrun --sdk iphonesimulator clang -arch "$simulator_arch" -target "${simulator_arch}-apple-ios15.0-simulator" \
+            -isysroot "$simulator_sdk" -fobjc-arc -fmodules -dynamiclib \
+            -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework PhotosUI -framework WebKit \
+            Core/PickerPatcher.m -o PatcherApp/BridgeResources/PickerPatcherSecond.dylib
+          codesign --force --sign - --timestamp=none PatcherApp/BridgeResources/PickerPatcherSecond.dylib
+          (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
+          cp Core/MachOInject.c Core/MachOInject.h PatcherApp/Sources/
+          (cd PatcherApp && xcodegen generate --spec project.yml)
+          # Build a known unencrypted app that can be selected, patched, exported,
+          # and installed on an iOS 15 device to exercise the media contract.
+          xcodebuild -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerHarness \
+            -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerHarnessDerived" \
+            CODE_SIGNING_ALLOWED=NO build
+          fixture="$RUNNER_TEMP/PickerHarnessDerived/Build/Products/Release-iphoneos/PickerHarness.app"
+          python3 Tools/sign-trollstore-app.py "$fixture" dist/harness-signing.json
+          mkdir -p "$RUNNER_TEMP/picker-harness/Payload"
+          cp -R "$fixture" "$RUNNER_TEMP/picker-harness/Payload/"
+          (cd "$RUNNER_TEMP/picker-harness" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/PatcherApp/Resources/PickerHarness.ipa")
+          cp PatcherApp/Resources/PickerHarness.ipa dist/PickerHarness-unpatched.ipa
+          (cd PatcherApp && xcodegen generate --spec project.yml)
+          xcodebuild -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
+            -configuration Release -sdk iphoneos -derivedDataPath "$RUNNER_TEMP/PickerPatcherDerived" \
+            CODE_SIGNING_ALLOWED=NO build
+          app="$RUNNER_TEMP/PickerPatcherDerived/Build/Products/Release-iphoneos/PickerPatcherApp.app"
+          test -f "$app/PickerPatcherApp"
+          test -f "$app/Payload.zip"
+          test -f "$app/Assets.car"
+          python3 Tools/sign-trollstore-app.py "$app" dist/patcher-signing.json
+          mkdir -p "$RUNNER_TEMP/pickerpatcher-ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/pickerpatcher-ipa/Payload/"
+          (cd "$RUNNER_TEMP/pickerpatcher-ipa" && ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/dist/PickerPatcherApp-TrollStore.ipa")
+          unzip -t dist/PickerPatcherApp-TrollStore.ipa >/dev/null
+
+      - name: Test native Files selection and media callback lifecycle in Simulator
+        id: native_tests
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
+          simulator="$(python3 -c 'import json,os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/simulators.json")); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["isAvailable"] and "iPhone" in v["name"]))')"
+          xcrun simctl boot "$simulator" || true
+          xcrun simctl bootstatus "$simulator" -b
+          xcrun simctl status_bar "$simulator" override --time '9:41' || true
+          xcrun simctl list devices available > dist/simulator-runtime.txt
+          test_status=0
+          xcodebuild build-for-testing -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
+            -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerPatcherSim" CODE_SIGNING_ALLOWED=NO
+          python3 Tools/sign-trollstore-app.py \
+            "$RUNNER_TEMP/PickerPatcherSim/Build/Products/Debug-iphonesimulator/PickerPatcherApp.app" \
+            dist/simulator-patcher-signing.json --simulator
+          xcodebuild test-without-building -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerPatcherApp \
+            -parallel-testing-enabled NO -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerPatcherSim" -resultBundlePath dist/ImportPickerTests.xcresult \
+            -only-testing:ImportPickerTests/ImportPickerTests CODE_SIGNING_ALLOWED=NO || test_status=$?
+          xcodebuild build-for-testing -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerBridgeHost \
+            -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerBridgeSim" CODE_SIGNING_ALLOWED=NO
+          # Test the actual integration mechanism: the host is built WITHOUT
+          # the hook source, then its Mach-O gains the same framework load command
+          # used by the on-device patcher. A source-linked host cannot prove this.
+          PP_SDK=iphonesimulator bash Tools/build-embedded.sh "$RUNNER_TEMP/SimulatorEmbedded"
+          bridge_app="$RUNNER_TEMP/PickerBridgeSim/Build/Products/Debug-iphonesimulator/PickerBridgeHost.app"
+          mkdir -p "$bridge_app/Frameworks"
+          cp -R "$RUNNER_TEMP/SimulatorEmbedded/PickerPatcherEmbedded.framework" "$bridge_app/Frameworks/"
+          codesign --force --sign - --timestamp=none "$bridge_app/Frameworks/PickerPatcherEmbedded.framework"
+          dist/pp-inject "$bridge_app/PickerBridgeHost" '@executable_path/Frameworks/PickerPatcherEmbedded.framework/PickerPatcherEmbedded'
+          otool -L "$bridge_app/PickerBridgeHost" > dist/simulator-injected-load-commands.txt
+          python3 Tools/sign-trollstore-app.py \
+            "$RUNNER_TEMP/PickerBridgeSim/Build/Products/Debug-iphonesimulator/PickerBridgeHost.app" \
+            dist/simulator-bridge-signing.json --simulator
+          xcodebuild test-without-building -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerBridgeHost \
+            -parallel-testing-enabled NO -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
+            -derivedDataPath "$RUNNER_TEMP/PickerBridgeSim" -resultBundlePath dist/BridgePickerTests.xcresult \
+            -only-testing:BridgePickerTests/BridgePickerTests CODE_SIGNING_ALLOWED=NO || test_status=$?
+          exit "$test_status"
+
+      - name: Export test evidence
+        if: always() && steps.native_tests.outcome != 'skipped'
+        timeout-minutes: 3
+        run: |
+          for suite in ImportPickerTests BridgePickerTests; do
+            if [ -d "dist/$suite.xcresult" ]; then
+              xcrun xcresulttool get test-results summary --path "dist/$suite.xcresult" > "dist/$suite-summary.json" || true
+              xcrun xcresulttool export attachments --path "dist/$suite.xcresult" --output-path "dist/$suite-attachments" || true
+            fi
           done
-          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 -D > "$RUNNER_TEMP/certificate.p12"
-          printf '%s' "$BUILD_PROVISION_PROFILE_BASE64" | base64 -D > "$RUNNER_TEMP/profile.mobileprovision"
-          printf '%s' "$ENTITLEMENTS_BASE64" | base64 -D > "$RUNNER_TEMP/entitlements.plist"
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security import "$RUNNER_TEMP/certificate.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$RUNNER_TEMP/pickerpatcher.keychain-db"
-          security list-keychain -d user -s "$RUNNER_TEMP/pickerpatcher.keychain-db"
+          xcrun simctl list devices booted -j > "$RUNNER_TEMP/booted.json"
+          simulator="$(python3 -c 'import json,os; d=json.load(open(os.environ["RUNNER_TEMP"]+"/booted.json")); print(next((v["udid"] for vs in d["devices"].values() for v in vs), ""))')"
+          if [ -n "$simulator" ]; then
+            xcrun simctl spawn "$simulator" log show --last 10m --style compact \
+              --predicate 'process == "fileproviderd" OR subsystem CONTAINS "DocumentManager" OR eventMessage CONTAINS "sandbox extension"' \
+              > dist/simulator-file-provider.log || true
+            xcrun simctl spawn "$simulator" log show --last 15m --style compact \
+              --predicate 'process == "PickerBridgeHost"' > dist/simulator-bridge-console.log || true
+            tail -n 100 dist/simulator-bridge-console.log
+            container="$(xcrun simctl get_app_container "$simulator" dev.pickerpatcher.app.v07 data 2>/dev/null || true)"
+            if [ -n "$container" ] && [ -f "$container/Documents/PickerPatcher-diagnostics.txt" ]; then
+              cp "$container/Documents/PickerPatcher-diagnostics.txt" dist/simulator-import-diagnostics.txt
+            fi
+            bridge_container="$(xcrun simctl get_app_container "$simulator" dev.pickerpatcher.bridgehost data 2>/dev/null || true)"
+            if [ -n "$bridge_container" ] && [ -f "$bridge_container/Library/Caches/PickerPatcher-runtime.txt" ]; then
+              cp "$bridge_container/Library/Caches/PickerPatcher-runtime.txt" dist/simulator-injected-runtime.txt
+              cat dist/simulator-injected-runtime.txt
+            fi
+          fi
 
-      - name: Patch and sign optional IPA
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY != '' }}
-        env:
-          SIGN_IDENTITY: ${{ secrets.SIGN_IDENTITY }}
+      - name: Prepare complete GitHub source archive
+        if: always()
         run: |
-          python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/insert_dylib --out dist/PickerPatcher-signed.ipa \
-            --sign-identity "$SIGN_IDENTITY" --profile "$RUNNER_TEMP/profile.mobileprovision" \
-            --entitlements "$RUNNER_TEMP/entitlements.plist"
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          paths = [".github/workflows/build.yml",".gitignore","Core/MachOInject.c","Core/MachOInject.h","Core/PickerPatcher.m","Embedded/Info.plist","Harness/Info.plist","Harness/main.m","Harness/ProviderSwiftProbe.swift","Makefile","PatcherApp/Info.plist","PatcherApp/Sources/Bridging.h","PatcherApp/Sources/IPAImport.swift","PatcherApp/Sources/IPAPatcher.swift","PatcherApp/Sources/PickerPatcherApp.swift","PatcherApp/UITests/PickerTests.swift","PatcherApp/project.yml","PickerPatcher.plist","README.md","Research/iOS15-upload-api-research.md","Research/iOS15-deep-research.md","Research/iOS15-feasibility.md","Research/iOS15-picker-diagnosis.md","Tests/test_macho_inject.py","Tools/build-embedded.sh","Tools/configure_app.py","Tools/make_app_icon.swift","Tools/patch_ipa.py","Tools/sign-trollstore-app.py","configure-target.py","control"]
+          root = Path("source-for-github")
+          for name in paths:
+              target = root / name
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(name, target)
+          PY
 
-      - name: Patch optional IPA for external signing
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.ipa_url != '' && env.SIGN_IDENTITY == '' }}
-        run: |
-          python3 Tools/patch_ipa.py --ipa input.ipa --framework dist/PickerPatcherEmbedded.framework \
-            --injector dist/insert_dylib --out dist/PickerPatcher-unsigned.ipa
+      - name: Upload complete GitHub source ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PickerPatcher-GitHub-ready-iOS15-0.7.0
+          path: source-for-github/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload installable IPA and tweak ZIP
+        if: always() && hashFiles('dist/*.ipa') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: PickerPatcher-installables-iOS15-0.7.0
+          path: |
+            dist/*.ipa
+            dist/*.deb
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload build artifacts
+        if: always() && hashFiles('dist/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: PickerPatcher-iOS15-${{ github.run_number }}

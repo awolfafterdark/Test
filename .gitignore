@@ -1,0 +1,11 @@
+.build/
+dist/
+packages/
+.theos/
+PatcherApp/Assets.xcassets/
+PatcherApp/Resources/Payload.zip
+PatcherApp/Sources/MachOInject.c
+PatcherApp/Sources/MachOInject.h
+PatcherApp/PickerPatcherApp.xcodeproj/
+__pycache__/
+*.pyc
