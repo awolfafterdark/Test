@@ -102,3 +102,10 @@ Exa: 21 result slots requested in three searches; useful public Apple docs, no p
 
 
 Root investigation also used Parallel Search to locate the WebKit upload implementation and distinguish iOS18.4 public open-panel APIs from iOS15 internals. Nimble ran an independent source investigation: it corroborated the WebKit selector names and the absence of a public PHPickerResult constructor, but did not locate the iOS15.5 runtime dump obtained directly through GitHub. Its public-App-Store recommendations are not treated as restrictions on this explicitly jailbreak/TrollStore project. SerpApi had no request connector/CLI, injected key, or stored configuration, so no SerpApi search is claimed. Mobile App Builder's debugging workflow was used to separate framework loading, detection, callback delivery, and actual file-read evidence; it is not an iOS API authority.
+
+
+## iOS 18 Simulator compatibility and lifecycle correction
+
+The injection-level test on iOS18.5 reported the iOS15-era constructor unavailable and passed legacy image delivery plus actual WebKit FileReader/image decoding. It did not pass PHPicker. The iOS18 runtime dump also declares `_initWithItemProvider:itemIdentifier:isAssetResult:metadata:` ([header](https://github.com/qingralf/iOS18-Runtime-Headers/blob/main/Frameworks/PhotosUI.framework/PHPickerResult.h)). The implementation now checks both exact ABIs, prefers the older constructor where present, and validates the returned real result/provider/nil asset identity. Availability of a selector is not a passing provider test. A file-item UUID in the newer initializer is distinct from a Photos asset identity.
+
+The legacy cancellation test also exposed UIKit automatic-dismissal timing: calling dismiss again while the document controller is already dismissing can lose the completion. The close path now joins the current transition or waits for UIKit to clear presentation before invoking the application callback. Runtime events persist across launches to preserve a missed-flow trace.

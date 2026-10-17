@@ -6,6 +6,7 @@
 #import <ImageIO/ImageIO.h>
 #import <AVFoundation/AVFoundation.h>
 #import <WebKit/WebKit.h>
+#import <string.h>
 
 // Objective-C classes register before constructors. Distinct product names keep
 // two images from fighting over class implementations before the hook guard.
@@ -30,10 +31,16 @@ static BOOL PPEnabled(void) {
     return ![NSUserDefaults.standardUserDefaults boolForKey:@"PickerPatcherDisabled"] &&
         ![NSFileManager.defaultManager fileExistsAtPath:@"/var/jb/Library/PickerPatcher/disabled"];
 }
+static NSURL *PPLogURL(void);
 static NSMutableArray *PPEvents(void) {
     @synchronized(UIViewController.class) {
         NSMutableArray *events = objc_getAssociatedObject(UIViewController.class, PPKey(@"Events"));
-        if (!events) { events = [NSMutableArray array]; objc_setAssociatedObject(UIViewController.class, PPKey(@"Events"), events, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        if (!events) {
+            NSString *previous=[NSString stringWithContentsOfURL:PPLogURL() encoding:NSUTF8StringEncoding error:nil];
+            events=[[previous componentsSeparatedByString:@"\n"] mutableCopy]?:[NSMutableArray array];
+            if (events.count>150) [events removeObjectsInRange:NSMakeRange(0,events.count-150)];
+            objc_setAssociatedObject(UIViewController.class, PPKey(@"Events"), events, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         return events;
     }
 }
@@ -71,23 +78,54 @@ static void PPAnchor(UIAlertController *sheet, UIViewController *host) {
     sheet.popoverPresentationController.sourceView = host.view;
     sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(host.view.bounds),CGRectGetMidY(host.view.bounds),1,1);
 }
-static void PPAfterSheet(UIAlertController *sheet, void (^block)(void)) {
-    if (sheet.presentingViewController) [sheet dismissViewControllerAnimated:YES completion:block];
-    else dispatch_async(dispatch_get_main_queue(),block);
+static void PPDismiss(UIViewController *controller, void (^finish)(void)) {
+    if (!controller || !controller.presentingViewController) { dispatch_async(dispatch_get_main_queue(),finish); return; }
+    if (controller.isBeingDismissed) {
+        // Files/UIAlert can begin automatic dismissal before invoking a delegate.
+        // A second dismiss call may never execute its completion. Join the real
+        // transition instead, or wait until UIKit clears the presenter.
+        id<UIViewControllerTransitionCoordinator> transition=controller.transitionCoordinator;
+        if (transition && [transition animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+            if (context.isCancelled) PPDismiss(controller,finish); else finish();
+        }]) return;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,50*NSEC_PER_MSEC),dispatch_get_main_queue(),^{ PPDismiss(controller,finish); });
+        return;
+    }
+    [controller dismissViewControllerAnimated:YES completion:finish];
 }
-static BOOL PPResultInitializerAvailable(void) {
-    Method m = class_getInstanceMethod(PHPickerResult.class, NSSelectorFromString(@"_initWithItemProvider:assetIdentifier:"));
-    if (!m || method_getNumberOfArguments(m) != 4) return NO;
-    char *ret = method_copyReturnType(m), *a = method_copyArgumentType(m,2), *b = method_copyArgumentType(m,3);
-    BOOL valid = ret && ret[0]=='@' && a && a[0]=='@' && b && b[0]=='@';
-    free(ret); free(a); free(b); return valid;
+static void PPAfterSheet(UIAlertController *sheet, void (^block)(void)) { PPDismiss(sheet,block); }
+static BOOL PPMethodMatches(Method method, const char *arguments) {
+    if (!method || method_getNumberOfArguments(method)!=strlen(arguments)+2) return NO;
+    char *ret=method_copyReturnType(method); BOOL match=ret && ret[0]=='@'; free(ret);
+    for (unsigned int index=0; arguments[index]; index++) {
+        char *arg=method_copyArgumentType(method,index+2);
+        BOOL valid=arg && (arg[0]==arguments[index] || (arguments[index]=='B' && arg[0]=='c'));
+        free(arg); if (!valid) match=NO;
+    }
+    return match;
 }
+static SEL PPResultConstructor(void) {
+    SEL legacy=NSSelectorFromString(@"_initWithItemProvider:assetIdentifier:");
+    if (PPMethodMatches(class_getInstanceMethod(PHPickerResult.class,legacy),"@@")) return legacy;
+    // The item-based initializer is also present in iOS18 runtime headers.
+    // Only select it when its exact object/object/bool/object ABI matches.
+    SEL item=NSSelectorFromString(@"_initWithItemProvider:itemIdentifier:isAssetResult:metadata:");
+    return PPMethodMatches(class_getInstanceMethod(PHPickerResult.class,item),"@@B@")?item:NULL;
+}
+static BOOL PPResultInitializerAvailable(void) { return PPResultConstructor()!=NULL; }
 static PHPickerResult *PPResult(NSItemProvider *provider) {
-    if (!PPResultInitializerAvailable()) return nil;
-    // Private iOS 14/15 runtime initializer. Actual result object, never a fake
-    // subclass or fabricated PHAsset identifier. Runtime guard is mandatory.
-    id result = ((id (*)(id,SEL,id,id))objc_msgSend)([PHPickerResult alloc],NSSelectorFromString(@"_initWithItemProvider:assetIdentifier:"),provider,nil);
-    return [result isKindOfClass:PHPickerResult.class] && [result itemProvider] == provider ? result : nil;
+    SEL selector=PPResultConstructor(); if (!selector) return nil;
+    @try {
+        id result;
+        if (selector==NSSelectorFromString(@"_initWithItemProvider:assetIdentifier:")) {
+            result=((id (*)(id,SEL,id,id))objc_msgSend)([PHPickerResult alloc],selector,provider,nil);
+        } else {
+            // A file-item identity is not a Photos asset identity. False keeps
+            // assetIdentifier nil; metadata is not fabricated from a PHAsset.
+            result=((id (*)(id,SEL,id,id,BOOL,id))objc_msgSend)([PHPickerResult alloc],selector,provider,NSUUID.UUID.UUIDString,NO,nil);
+        }
+        return [result isKindOfClass:PHPickerResult.class] && [result itemProvider]==provider && [result assetIdentifier]==nil ? result : nil;
+    } @catch (__unused NSException *exception) { PPLog(@"PhotosUI initializer rejected provider"); return nil; }
 }
 
 @interface PPStatus : NSObject
@@ -249,8 +287,7 @@ static NSItemProvider *PPProvider(NSDictionary *media) {
     [self end];
 }
 - (void)closeDocument:(void (^)(void))finish {
-    if (self.document.presentingViewController) [self.document dismissViewControllerAnimated:YES completion:finish];
-    else finish();
+    PPDismiss(self.document,finish);
 }
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
     if (self.processing) return;
@@ -422,7 +459,15 @@ __attribute__((constructor)) static void PPStart(void) {
             PPOriginalWebMenu=method_getImplementation(menu); method_setImplementation(menu,(IMP)PPWebMenu); PPWebInstalled=YES;
         }
         free(menuReturn); free(filesReturn);
-        PPLog([NSString stringWithFormat:@"Loaded 0.7.0; iOS %@; PHPicker constructor=%@; WebKit=%@",UIDevice.currentDevice.systemVersion,PPResultInitializerAvailable()?@"yes":@"no",PPWebInstalled?@"yes":@"no"]);
+        PPLog([NSString stringWithFormat:@"Loaded 0.7.0; iOS %@; PHPicker constructor=%@; WebKit=%@",UIDevice.currentDevice.systemVersion,PPResultConstructor()?NSStringFromSelector(PPResultConstructor()):@"unavailable",PPWebInstalled?@"yes":@"no"]);
+        if (!PPResultInitializerAvailable()) {
+            unsigned int count=0; Method *methods=class_copyMethodList(PHPickerResult.class,&count);
+            for (unsigned int i=0;i<count;i++) {
+                NSString *name=NSStringFromSelector(method_getName(methods[i]));
+                if ([name containsString:@"init"]) PPLog([NSString stringWithFormat:@"PhotosUI runtime method %@ %s",name,method_getTypeEncoding(methods[i])]);
+            }
+            free(methods);
+        }
         [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *n) { [PPStatus attach]; }];
         dispatch_async(dispatch_get_main_queue(),^{ [PPStatus attach]; });
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{ PPPrune(); });
