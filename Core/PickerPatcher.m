@@ -83,6 +83,7 @@ static PHPickerResult *PPResult(NSItemProvider *provider) {
 @interface PPStatus : NSObject
 + (void)attach;
 + (void)show:(id)sender;
++ (void)move:(UIPanGestureRecognizer *)gesture;
 @end
 @implementation PPStatus
 + (void)attach {
@@ -97,11 +98,20 @@ static PHPickerResult *PPResult(NSItemProvider *provider) {
     button.backgroundColor = [UIColor.systemBlueColor colorWithAlphaComponent:0.9];
     [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
     button.layer.cornerRadius = 18;
-    button.frame = CGRectMake(MAX(4,window.bounds.size.width-48),window.safeAreaInsets.top+6,40,36);
-    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin|UIViewAutoresizingFlexibleBottomMargin;
+    button.frame = CGRectMake(MAX(4,window.bounds.size.width-52),MAX(window.safeAreaInsets.top+8,window.bounds.size.height-window.safeAreaInsets.bottom-76),40,36);
+    button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin|UIViewAutoresizingFlexibleTopMargin;
+    [button addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(move:)]];
     [button addTarget:self action:@selector(show:) forControlEvents:UIControlEventTouchUpInside];
     [window addSubview:button];
     objc_setAssociatedObject(window,PPKey(@"Button"),button,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
++ (void)move:(UIPanGestureRecognizer *)gesture {
+    UIView *button=gesture.view; UIView *window=button.superview;
+    CGPoint translation=[gesture translationInView:window];
+    CGPoint center=CGPointMake(button.center.x+translation.x,button.center.y+translation.y);
+    center.x=MIN(MAX(center.x,24),window.bounds.size.width-24);
+    center.y=MIN(MAX(center.y,window.safeAreaInsets.top+24),window.bounds.size.height-window.safeAreaInsets.bottom-24);
+    button.center=center; [gesture setTranslation:CGPointZero inView:window];
 }
 + (void)show:(id)sender {
     UIViewController *host = PPTop();
