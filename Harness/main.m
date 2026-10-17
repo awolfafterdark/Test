@@ -5,6 +5,11 @@
 #import <objc/message.h>
 #import <WebKit/WebKit.h>
 
+static BOOL HarnessPresented(UIViewController *controller) {
+    while (controller.parentViewController) controller=controller.parentViewController;
+    return controller.presentingViewController!=nil;
+}
+
 @interface HarnessWebController : UIViewController <WKScriptMessageHandler>
 @property(nonatomic,strong) WKWebView *web;
 @property(nonatomic,strong) UILabel *result;
@@ -112,12 +117,12 @@
     [self presentViewController:container animated:YES completion:nil];
 }
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-    BOOL presented = picker.presentingViewController != nil;
+    BOOL presented = HarnessPresented(picker);
     NSURL *url = info[UIImagePickerControllerImageURL] ?: info[UIImagePickerControllerMediaURL];
     UIImage *image = info[UIImagePickerControllerOriginalImage];
     BOOL isImage = [info[UIImagePickerControllerMediaType] isEqualToString:UTTypeImage.identifier];
     [picker dismissViewControllerAnimated:YES completion:^{
-        BOOL dismissed = picker.presentingViewController == nil;
+        BOOL dismissed = !HarnessPresented(picker);
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             unsigned long long bytes = 0;
             if (url) {
@@ -136,9 +141,9 @@
     }];
 }
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    BOOL presented = picker.presentingViewController != nil;
+    BOOL presented = HarnessPresented(picker);
     [picker dismissViewControllerAnimated:YES completion:^{
-        self.result.text = presented && picker.presentingViewController == nil ? @"PASS cancel; presenter=yes; dismiss=yes" : @"FAIL cancel lifecycle";
+        self.result.text = presented && !HarnessPresented(picker) ? @"PASS cancel; presenter=yes; dismiss=yes" : @"FAIL cancel lifecycle";
     }];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {

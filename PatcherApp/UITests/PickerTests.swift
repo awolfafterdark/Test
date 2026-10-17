@@ -96,6 +96,7 @@ final class BridgePickerTests: XCTestCase {
         app.launchArguments = ["--double-hook"]
         app.launch()
         XCTAssertTrue(app.staticTexts["Injected framework 0.7.0"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["pickerPatcherStatus"].waitForExistence(timeout:5))
         return app
     }
     func testPHPickerFilesProvidersAndSwiftBridge() {
@@ -130,6 +131,15 @@ final class BridgePickerTests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout:15)); cancel.tap()
         expectation(for:NSPredicate(format:"label == %@","PASS php cancel; presenter=yes; dismiss=yes"),evaluatedWith:app.staticTexts["harnessResult"])
         waitForExpectations(timeout:20)
+    }
+    func testContainedImagePicker() {
+        let app=launchInjected()
+        app.buttons["harnessWrapped"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
+        app.buttons["Browse Files"].tap()
+        selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
+        expectation(for:NSPredicate(format:"label BEGINSWITH %@","PASS image; presenter=yes; dismiss=yes; bytes="),evaluatedWith:app.staticTexts["harnessResult"])
+        waitForExpectations(timeout:25)
     }
     func testWebKitNativeFileUpload() {
         let app=launchInjected()

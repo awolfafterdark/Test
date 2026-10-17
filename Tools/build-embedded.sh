@@ -16,7 +16,7 @@ fi
 compiler="$(xcrun --sdk "$sdk_name" --find clang)"
 mkdir -p "$framework"
 "$compiler" -arch "$architecture" -target "$target" -isysroot "$sdk" \
-  -fobjc-arc -fmodules -O2 -Wall -Wextra -dynamiclib \
+  -fobjc-arc -fmodules -DPP_EMBEDDED=1 -O2 -Wall -Wextra -dynamiclib \
   -install_name '@rpath/PickerPatcherEmbedded.framework/PickerPatcherEmbedded' \
   -framework Foundation -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework PhotosUI -framework WebKit \
   "$project_root/Core/PickerPatcher.m" -o "$framework/PickerPatcherEmbedded"

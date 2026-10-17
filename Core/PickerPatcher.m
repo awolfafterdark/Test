@@ -7,6 +7,16 @@
 #import <AVFoundation/AVFoundation.h>
 #import <WebKit/WebKit.h>
 
+// Objective-C classes register before constructors. Distinct product names keep
+// two images from fighting over class implementations before the hook guard.
+#if defined(PP_EMBEDDED) && PP_EMBEDDED
+#define PPStatus PPEmbeddedStatus07
+#define PPSession PPEmbeddedSession07
+#else
+#define PPStatus PPRuntimeStatus07
+#define PPSession PPRuntimeSession07
+#endif
+
 // This is built independently for the jailbreak loader and the IPA framework.
 // Shared selector keys make loading both images safe; no Objective-C categories.
 static const void *PPKey(NSString *name) { return NSSelectorFromString([@"PickerPatcher07" stringByAppendingString:name]); }
