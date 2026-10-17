@@ -37,6 +37,7 @@
 
 @interface HarnessController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate>
 @property(nonatomic, strong) UILabel *result;
+@property(nonatomic, strong) id providerDelegate;
 @end
 @implementation HarnessController
 - (void)viewDidLoad {
@@ -89,7 +90,10 @@
         configuration.selectionLimit = button.tag == 4 ? 2 : 1;
         configuration.filter=PHPickerFilter.imagesFilter;
         PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
-        picker.delegate = self;
+        id allocated=[NSClassFromString(@"PPProviderDelegate") alloc];
+        self.providerDelegate=((id (*)(id,SEL,id))objc_msgSend)(allocated,NSSelectorFromString(@"initWithResultLabel:"),self.result);
+        NSAssert(self.providerDelegate!=nil,@"The real Swift PHPicker delegate must load");
+        picker.delegate=self.providerDelegate;
         [self presentViewController:picker animated:YES completion:nil];
         return;
     }
@@ -138,41 +142,7 @@
     }];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    BOOL presented=picker.presentingViewController!=nil;
-    BOOL swiftBridge=results.count==0 || ((BOOL (*)(id,SEL,id))objc_msgSend)(NSClassFromString(@"PPProviderProbe"),NSSelectorFromString(@"verify:"),results);
-    [picker dismissViewControllerAnimated:YES completion:^{
-        BOOL dismissed=picker.presentingViewController==nil;
-        if (!results.count) { self.result.text=presented && dismissed?@"PASS php cancel; presenter=yes; dismiss=yes":@"FAIL php cancel"; return; }
-        dispatch_group_t group=dispatch_group_create();
-        __block NSUInteger objectCount=0,dataCount=0,fileCount=0;
-        __block BOOL identities=YES;
-        NSObject *lock=[NSObject new];
-        for (PHPickerResult *result in results) {
-            if (result.assetIdentifier!=nil) identities=NO;
-            NSItemProvider *provider=result.itemProvider;
-            dispatch_group_enter(group);
-            [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> image,NSError *error) {
-                @synchronized(lock) { if ([image isKindOfClass:UIImage.class] && !error) objectCount++; }
-                dispatch_group_leave(group);
-            }];
-            NSString *type=provider.registeredTypeIdentifiers.firstObject?:UTTypePNG.identifier;
-            dispatch_group_enter(group);
-            [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data,NSError *error) {
-                @synchronized(lock) { if (data.length && !error) dataCount++; }
-                dispatch_group_leave(group);
-            }];
-            dispatch_group_enter(group);
-            [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url,NSError *error) {
-                unsigned long long bytes=[[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil][NSFileSize] unsignedLongLongValue];
-                @synchronized(lock) { if (bytes && !error) fileCount++; }
-                dispatch_group_leave(group);
-            }];
-        }
-        dispatch_group_notify(group,dispatch_get_main_queue(),^{
-            BOOL valid=presented && dismissed && identities && swiftBridge && objectCount==results.count && dataCount==results.count && fileCount==results.count;
-            self.result.text=[NSString stringWithFormat:@"%@ providers; count=%lu; object=%@; data=%@; file=%@; identities=%@; dismiss=%@; swift=%@",valid?@"PASS":@"FAIL",(unsigned long)results.count,objectCount==results.count?@"yes":@"no",dataCount==results.count?@"yes":@"no",fileCount==results.count?@"yes":@"no",identities?@"nil":@"unexpected",dismissed?@"yes":@"no",swiftBridge?@"yes":@"no"];
-        });
-    }];
+    [picker dismissViewControllerAnimated:YES completion:^{ self.result.text=@"FAIL expected the Swift PHPicker delegate"; }];
 }
 @end
 @interface HarnessAppDelegate : UIResponder <UIApplicationDelegate>
