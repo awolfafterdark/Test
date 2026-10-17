@@ -49,8 +49,8 @@ static UIWindow *PPWindow(void) {
             for (UIWindow *window in ((UIWindowScene *)scene).windows) if (window.isKeyWindow) return window;
         }
     }
-    for (UIWindow *window in UIApplication.sharedApplication.windows) if (window.isKeyWindow) return window;
-    return nil;
+    id<UIApplicationDelegate> delegate=UIApplication.sharedApplication.delegate;
+    return [delegate respondsToSelector:@selector(window)] ? delegate.window : nil;
 }
 static UIViewController *PPTop(void) {
     UIViewController *top = PPWindow().rootViewController;

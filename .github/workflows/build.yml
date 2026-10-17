@@ -163,6 +163,7 @@ jobs:
           unzip -t dist/PickerPatcherApp-TrollStore.ipa >/dev/null
 
       - name: Test native Files selection and media callback lifecycle in Simulator
+        id: native_tests
         run: |
           set -euo pipefail
           xcrun simctl list devices available -j > "$RUNNER_TEMP/simulators.json"
@@ -205,7 +206,8 @@ jobs:
           exit "$test_status"
 
       - name: Export test evidence
-        if: always()
+        if: always() && steps.native_tests.outcome != 'skipped'
+        timeout-minutes: 3
         run: |
           for suite in ImportPickerTests BridgePickerTests; do
             if [ -d "dist/$suite.xcresult" ]; then
@@ -254,7 +256,7 @@ jobs:
           retention-days: 14
 
       - name: Upload installable IPA and tweak ZIP
-        if: always()
+        if: always() && hashFiles('dist/*.ipa') != ''
         uses: actions/upload-artifact@v4
         with:
           name: PickerPatcher-installables-iOS15-0.7.0
@@ -265,7 +267,7 @@ jobs:
           retention-days: 14
 
       - name: Upload build artifacts
-        if: always()
+        if: always() && hashFiles('dist/**') != ''
         uses: actions/upload-artifact@v4
         with:
           name: PickerPatcher-iOS15-${{ github.run_number }}
