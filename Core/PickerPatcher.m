@@ -371,7 +371,8 @@ static PPSession *PPSessionFor(UIViewController *picker, UIViewController *conta
     } else {
         session.modern=YES;
         PHPickerViewController *modern=(id)picker; PHPickerConfiguration *config=modern.configuration;
-        if (!PPResultInitializerAvailable() || ![modern.delegate respondsToSelector:@selector(picker:didFinishPicking:)]) { PPLog(@"PHPicker retained: result initializer or delegate unavailable"); return nil; }
+        if (!PPResultInitializerAvailable()) { PPLog(@"PHPicker retained: result initializer unavailable"); return nil; }
+        if (![modern.delegate respondsToSelector:@selector(picker:didFinishPicking:)]) { PPLog(@"PHPicker retained: delegate unavailable or incompatible"); return nil; }
         SEL onlyIDs=NSSelectorFromString(@"_onlyReturnsIdentifiers");
         if (config.preselectedAssetIdentifiers.count || ([config respondsToSelector:onlyIDs] && ((BOOL (*)(id,SEL))objc_msgSend)(config,onlyIDs))) { PPLog(@"PHPicker retained: Photos identity/preselection contract"); return nil; }
         PHPickerFilter *filter=config.filter;

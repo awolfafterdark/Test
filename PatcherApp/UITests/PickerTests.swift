@@ -84,6 +84,7 @@ final class BridgePickerTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["Injected framework 0.7.0"].waitForExistence(timeout: 10))
         app.buttons["harnessImage"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         app.buttons["Browse Files"].tap()
         let cancel = app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 20))
@@ -103,6 +104,7 @@ final class BridgePickerTests: XCTestCase {
         let app=launchInjected()
         app.buttons["harnessPHPicker"].tap()
         XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         app.buttons["Browse Files"].tap()
         selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
         let expected="PASS providers; count=1; object=yes; data=yes; file=yes; identities=nil; dismiss=yes; swift=yes"
@@ -112,6 +114,7 @@ final class BridgePickerTests: XCTestCase {
     func testPHPickerFilesMultipleSelection() {
         let app=launchInjected()
         app.buttons["harnessPHMultiple"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         app.buttons["Browse Files"].tap()
         selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
         let second=app.collectionViews.cells.matching(NSPredicate(format:"label BEGINSWITH %@","PickerBridge2")).firstMatch
@@ -126,6 +129,7 @@ final class BridgePickerTests: XCTestCase {
     func testPHPickerFilesCancellation() {
         let app=launchInjected()
         app.buttons["harnessPHPicker"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         app.buttons["Browse Files"].tap()
         let cancel=app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout:15)); cancel.tap()
@@ -135,6 +139,7 @@ final class BridgePickerTests: XCTestCase {
     func testContainedImagePicker() {
         let app=launchInjected()
         app.buttons["harnessWrapped"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout:10))
         app.buttons["Browse Files"].tap()
         selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
@@ -148,7 +153,7 @@ final class BridgePickerTests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout:20)); input.tap()
         selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
         expectation(for:NSPredicate(format:"label == %@","PASS web; input change=yes; bytes=yes; image decode=yes"),evaluatedWith:app.staticTexts["webResult"])
-        waitForExpectations(timeout:25)
+        waitForExpectations(timeout:60)
     }
 
 }

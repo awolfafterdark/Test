@@ -98,7 +98,8 @@ static BOOL HarnessPresented(UIViewController *controller) {
         id allocated=[NSClassFromString(@"PPProviderDelegate") alloc];
         self.providerDelegate=((id (*)(id,SEL,id))objc_msgSend)(allocated,NSSelectorFromString(@"initWithResultLabel:"),self.result);
         NSAssert(self.providerDelegate!=nil,@"The real Swift PHPicker delegate must load");
-        picker.delegate=self.providerDelegate;
+        ((void (*)(id,SEL,id))objc_msgSend)(self.providerDelegate,NSSelectorFromString(@"attachToPicker:"),picker);
+        NSAssert([picker.delegate respondsToSelector:@selector(picker:didFinishPicking:)],@"Swift overlay must install its Objective-C delegate adapter");
         [self presentViewController:picker animated:YES completion:nil];
         return;
     }
