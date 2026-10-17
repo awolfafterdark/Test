@@ -44,7 +44,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         NotificationCenter.default.addObserver(self, selector: #selector(refresh), name: UIApplication.didBecomeActiveNotification, object: nil)
         let previousLog = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("PickerPatcher-diagnostics.txt")
         events = (try? String(contentsOf: previousLog, encoding: .utf8))?.split(separator: "\n").suffix(100).map(String.init) ?? []
-        record("launch iOS \(UIDevice.current.systemVersion); build 0.6.0 (6)")
+        record("launch iOS \(UIDevice.current.systemVersion); build 0.7.0 (7)")
         do {
             try fm.createDirectory(at: imports, withIntermediateDirectories: true)
             if ProcessInfo.processInfo.arguments.contains("--picker-uitest"),
@@ -205,7 +205,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         cell.detailTextLabel?.numberOfLines = 0
         var action = false
         switch (path.section, path.row) {
-        case (0, _): cell.textLabel?.text = "Build 0.6.0 (6) · iOS 15+"; cell.detailTextLabel?.text = "Native UIKit import · selection shown before patching"
+        case (0, _): cell.textLabel?.text = "Build 0.7.0 (7) · iOS 15+"; cell.detailTextLabel?.text = "Native UIKit import · selection shown before patching"
         case (1, 0): cell.textLabel?.text = "Choose IPA from Files"; cell.accessibilityIdentifier = "chooseIPA"; action = true
         case (1, 1): cell.textLabel?.text = "Try compatibility import"; action = true
         case (1, 2): cell.textLabel?.text = selected?.lastPathComponent ?? "No IPA selected"; cell.detailTextLabel?.text = status; cell.accessibilityIdentifier = "selectionStatus"; cell.detailTextLabel?.accessibilityIdentifier = "statusMessage"
@@ -218,7 +218,7 @@ final class PatcherController: UITableViewController, UIDocumentPickerDelegate, 
         case (3, 2): cell.textLabel?.text = output?.lastPathComponent
         case (4, 0): cell.textLabel?.text = "Share diagnostics"; action = true
         case (4, 1): cell.textLabel?.text = "Create picker test IPA"; cell.detailTextLabel?.text = "Copies a small, unencrypted test app into Imports. Select it through Files, then patch it."; cell.accessibilityIdentifier = "createFixture"; action = true
-        default: cell.textLabel?.text = "Standard UIImagePickerController image/video flows only. PHPicker, editing, Photos asset identities and custom galleries retain their original UI."; cell.detailTextLabel?.text = "Actual target apps require upload testing."
+        default: cell.textLabel?.text = "Native UIImagePicker, PHPicker item providers and WebKit upload paths are adapted. A PP button in the patched app confirms the framework loaded."; cell.detailTextLabel?.text = "Private APIs are checked at runtime. Editing, Photos identity workflows and custom galleries may require a targeted adapter."
         }
         if cell.accessibilityIdentifier == "selectionStatus" {
             cell.isAccessibilityElement = false

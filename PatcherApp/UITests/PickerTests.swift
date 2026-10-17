@@ -64,6 +64,7 @@ final class BridgePickerTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--double-hook"]
         app.launch()
+        XCTAssertTrue(app.staticTexts["Injected framework 0.7.0"].waitForExistence(timeout: 10))
         app.buttons["harnessImage"].tap()
         let files = app.buttons["Browse Files"]
         XCTAssertTrue(files.waitForExistence(timeout: 10))
@@ -81,6 +82,7 @@ final class BridgePickerTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--double-hook"]
         app.launch()
+        XCTAssertTrue(app.staticTexts["Injected framework 0.7.0"].waitForExistence(timeout: 10))
         app.buttons["harnessImage"].tap()
         app.buttons["Browse Files"].tap()
         let cancel = app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
@@ -89,6 +91,56 @@ final class BridgePickerTests: XCTestCase {
         expectation(for: NSPredicate(format: "label == %@", "PASS cancel; presenter=yes; dismiss=yes"), evaluatedWith: app.staticTexts["harnessResult"])
         waitForExpectations(timeout: 20)
     }
+    private func launchInjected() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--double-hook"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Injected framework 0.7.0"].waitForExistence(timeout: 10))
+        return app
+    }
+    func testPHPickerFilesProvidersAndSwiftBridge() {
+        let app=launchInjected()
+        app.buttons["harnessPHPicker"].tap()
+        XCTAssertTrue(app.buttons["Browse Files"].waitForExistence(timeout: 10))
+        app.buttons["Browse Files"].tap()
+        selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
+        let expected="PASS providers; count=1; object=yes; data=yes; file=yes; identities=nil; dismiss=yes; swift=yes"
+        expectation(for:NSPredicate(format:"label == %@",expected),evaluatedWith:app.staticTexts["harnessResult"])
+        waitForExpectations(timeout:30)
+    }
+    func testPHPickerFilesMultipleSelection() {
+        let app=launchInjected()
+        app.buttons["harnessPHMultiple"].tap()
+        app.buttons["Browse Files"].tap()
+        selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
+        let second=app.collectionViews.cells.matching(NSPredicate(format:"label BEGINSWITH %@","PickerBridge2")).firstMatch
+        XCTAssertTrue(second.waitForExistence(timeout:10))
+        second.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.25)).tap()
+        let open=app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Open"]
+        XCTAssertTrue(open.waitForExistence(timeout:5)); open.tap()
+        let expected="PASS providers; count=2; object=yes; data=yes; file=yes; identities=nil; dismiss=yes; swift=yes"
+        expectation(for:NSPredicate(format:"label == %@",expected),evaluatedWith:app.staticTexts["harnessResult"])
+        waitForExpectations(timeout:30)
+    }
+    func testPHPickerFilesCancellation() {
+        let app=launchInjected()
+        app.buttons["harnessPHPicker"].tap()
+        app.buttons["Browse Files"].tap()
+        let cancel=app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout:15)); cancel.tap()
+        expectation(for:NSPredicate(format:"label == %@","PASS php cancel; presenter=yes; dismiss=yes"),evaluatedWith:app.staticTexts["harnessResult"])
+        waitForExpectations(timeout:20)
+    }
+    func testWebKitNativeFileUpload() {
+        let app=launchInjected()
+        app.buttons["harnessWeb"].tap()
+        let input=app.webViews.buttons["Choose upload image"]
+        XCTAssertTrue(input.waitForExistence(timeout:20)); input.tap()
+        selectNativeFile(app,name:"PickerBridge.png",folders:["Picker Bridge Test","Fixtures"])
+        expectation(for:NSPredicate(format:"label == %@","PASS web; input change=yes; bytes=yes; image decode=yes"),evaluatedWith:app.staticTexts["webResult"])
+        waitForExpectations(timeout:25)
+    }
+
 }
 
 // directoryURL is a suggested starting location. Files may show the parent

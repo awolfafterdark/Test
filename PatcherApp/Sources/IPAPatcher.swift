@@ -92,10 +92,8 @@ enum IPAPatcher {
             throw PatchFailure.invalid("Main app executable is missing.")
         }
         let detection = try detectPickers(in: app, mainExecutable: executable)
-        guard detection.legacy else {
-            throw PatchFailure.invalid(detection.modern
-                ? "This IPA references PHPicker but no supported UIImagePickerController was found. Its modern picker needs an app-specific adapter; this build would not change it."
-                : "No supported UIImagePickerController reference was found in the app binaries. A custom picker adapter may be required.")
+        guard detection.legacy || detection.modern || detection.web else {
+            throw PatchFailure.invalid("No native picker or WebKit reference was found. Custom galleries need a targeted adapter; provide the app name/version and upload screen.")
         }
         let target = app.appendingPathComponent("Frameworks/PickerPatcherEmbedded.framework", isDirectory: true)
         guard !fm.fileExists(atPath: target.path),
@@ -120,9 +118,10 @@ enum IPAPatcher {
             throw PatchFailure.invalid(String(cString: error))
         }
         let manifest: [String: Any] = [
-            "pickerPatcherVersion": "0.6.0", "bundleIdentifier": bundleID,
-            "adapter": "UIImagePickerController", "apiReferenceDetection": "heuristic",
-            "legacyPickerReference": detection.legacy, "modernPickerReference": detection.modern,
+            "pickerPatcherVersion": "0.7.0", "bundleIdentifier": bundleID,
+            "adapters": ["UIImagePickerController", "PHPicker item providers (runtime guarded)", "WebKit native document path (runtime guarded)"],
+            "runtimeStatusButton": "PP", "requiresOnDeviceValidation": true, "apiReferenceDetection": "heuristic",
+            "legacyPickerReference": detection.legacy, "modernPickerReference": detection.modern, "webKitReference": detection.web,
             "uploadCompatibilityVerified": false, "requiresTrollStoreSigning": true
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
@@ -134,7 +133,7 @@ enum IPAPatcher {
         try fm.moveItem(at: partial, to: output)
         return output
     }
-    private static func detectPickers(in app: URL, mainExecutable: URL) throws -> (legacy: Bool, modern: Bool) {
+    private static func detectPickers(in app: URL, mainExecutable: URL) throws -> (legacy: Bool, modern: Bool, web: Bool) {
         var candidates = [mainExecutable]
         let frameworks = app.appendingPathComponent("Frameworks", isDirectory: true)
         if let enumerator = fm.enumerator(at: frameworks, includingPropertiesForKeys: [.isRegularFileKey]) {
@@ -143,7 +142,7 @@ enum IPAPatcher {
                 candidates.append(url)
             }
         }
-        var legacy = false, modern = false
+        var legacy = false, modern = false, web = false
         for url in candidates {
             guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
             let magic = try? handle.read(upToCount: 4)
@@ -152,8 +151,9 @@ enum IPAPatcher {
             let data = try Data(contentsOf: url, options: .alwaysMapped)
             legacy = legacy || data.range(of: Data("UIImagePickerController".utf8)) != nil
             modern = modern || data.range(of: Data("PHPickerViewController".utf8)) != nil
+            web = web || data.range(of: Data("WKWebView".utf8)) != nil
         }
-        return (legacy, modern)
+        return (legacy, modern, web)
     }
 
 }

@@ -2,6 +2,38 @@
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <dlfcn.h>
+#import <objc/message.h>
+#import <WebKit/WebKit.h>
+
+@interface HarnessWebController : UIViewController <WKScriptMessageHandler>
+@property(nonatomic,strong) WKWebView *web;
+@property(nonatomic,strong) UILabel *result;
+@end
+@implementation HarnessWebController
+- (void)viewDidLoad {
+    [super viewDidLoad]; self.title=@"Web upload contract"; self.view.backgroundColor=UIColor.systemBackgroundColor;
+    WKWebViewConfiguration *config=[WKWebViewConfiguration new];
+    [config.userContentController addScriptMessageHandler:self name:@"upload"];
+    self.web=[[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
+    self.web.translatesAutoresizingMaskIntoConstraints=NO;
+    self.result=[UILabel new]; self.result.translatesAutoresizingMaskIntoConstraints=NO; self.result.numberOfLines=0;
+    self.result.accessibilityIdentifier=@"webResult"; self.result.text=@"Waiting for a real HTML file input change event.";
+    [self.view addSubview:self.web]; [self.view addSubview:self.result];
+    [NSLayoutConstraint activateConstraints:@[
+        [self.web.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+        [self.web.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor], [self.web.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+        [self.web.heightAnchor constraintEqualToConstant:300],
+        [self.result.topAnchor constraintEqualToAnchor:self.web.bottomAnchor constant:20],
+        [self.result.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor constant:20],
+        [self.result.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor constant:-20]]];
+    NSString *html=@"<!doctype html><meta name='viewport' content='width=device-width,initial-scale=1'><style>body{padding:30px;font:18px -apple-system}input{margin-top:30px;height:60px;width:100%}</style><label for='upload'>Upload an image from Files</label><input id='upload' aria-label='Choose upload image' type='file' accept='image/*'><script>document.getElementById('upload').addEventListener('change',function(){const file=this.files[0];if(!file)return;const r=new FileReader();r.onload=function(){const img=new Image();img.onload=function(){window.webkit.messageHandlers.upload.postMessage({bytes:file.size,width:img.width});};img.onerror=function(){window.webkit.messageHandlers.upload.postMessage({bytes:0,width:0});};img.src=r.result;};r.readAsDataURL(file);});</script>";
+    [self.web loadHTMLString:html baseURL:nil];
+}
+- (void)userContentController:(WKUserContentController *)controller didReceiveScriptMessage:(WKScriptMessage *)message {
+    NSDictionary *value=[message.body isKindOfClass:NSDictionary.class]?message.body:@{};
+    self.result.text=[value[@"bytes"] unsignedLongLongValue]>0 && [value[@"width"] integerValue]>0 ? @"PASS web; input change=yes; bytes=yes; image decode=yes" : @"FAIL web upload data";
+}
+@end
 
 @interface HarnessController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate>
 @property(nonatomic, strong) UILabel *result;
@@ -21,8 +53,8 @@
         [stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20],
         [stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24]
     ]];
-    NSArray *titles = @[@"Select image", @"Select video", @"Editing picker (original)", @"PHPicker (original)"];
-    NSArray *ids = @[@"harnessImage", @"harnessVideo", @"harnessEditing", @"harnessPHPicker"];
+    NSArray *titles = @[@"Select image", @"Select video", @"Editing picker (original)", @"PHPicker image", @"PHPicker multiple", @"Wrapped image picker", @"Web upload test"];
+    NSArray *ids = @[@"harnessImage", @"harnessVideo", @"harnessEditing", @"harnessPHPicker", @"harnessPHMultiple", @"harnessWrapped", @"harnessWeb"];
     for (NSInteger i=0; i<titles.count; i++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
         [button setTitle:titles[i] forState:UIControlStateNormal];
@@ -34,7 +66,11 @@
     self.result = [[UILabel alloc] init];
     self.result.numberOfLines = 0;
     self.result.accessibilityIdentifier = @"harnessResult";
-    self.result.text = @"Ready. Select media, check callback identity, dismiss, then read the file in chunks.";
+    const char *(*version)(void)=dlsym(RTLD_DEFAULT,"PickerPatcherVersion");
+    self.result.text=version ? [NSString stringWithFormat:@"Injected framework %s loaded. Ready for native upload tests.",version()] : @"No injected framework loaded (unpatched harness).";
+    UILabel *loaded=[UILabel new]; loaded.accessibilityIdentifier=@"injectionResult";
+    loaded.text=version?@"Injected framework 0.7.0":@"Unpatched harness";
+    [stack addArrangedSubview:loaded];
     [stack addArrangedSubview:self.result];
     NSURL *folder = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"Fixtures" isDirectory:YES];
     [[NSFileManager defaultManager] createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];
@@ -43,12 +79,15 @@
         [UIColor.systemBlueColor setFill]; UIRectFill(CGRectMake(0,0,64,64));
     }];
     [UIImagePNGRepresentation(image) writeToURL:[folder URLByAppendingPathComponent:@"PickerBridge.png"] atomically:YES];
+    [UIImagePNGRepresentation(image) writeToURL:[folder URLByAppendingPathComponent:@"PickerBridge2.png"] atomically:YES];
     [[NSUserDefaults standardUserDefaults] setObject:folder.path forKey:@"PickerPatcherTestDirectory"];
 }
 - (void)choose:(UIButton *)button {
-    if (button.tag == 3) {
+    if (button.tag == 6) { [self.navigationController pushViewController:[HarnessWebController new] animated:YES]; return; }
+    if (button.tag == 3 || button.tag == 4) {
         PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
-        configuration.selectionLimit = 1;
+        configuration.selectionLimit = button.tag == 4 ? 2 : 1;
+        configuration.filter=PHPickerFilter.imagesFilter;
         PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
         picker.delegate = self;
         [self presentViewController:picker animated:YES completion:nil];
@@ -59,7 +98,14 @@
     picker.mediaTypes = button.tag == 1 ? @[UTTypeMovie.identifier] : @[UTTypeImage.identifier];
     picker.allowsEditing = button.tag == 2;
     picker.delegate = self;
-    [self presentViewController:picker animated:YES completion:nil];
+    UIViewController *container=picker;
+    if (button.tag==5) {
+        container=[UIViewController new]; [container addChildViewController:picker];
+        picker.view.frame=container.view.bounds;
+        picker.view.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+        [container.view addSubview:picker.view]; [picker didMoveToParentViewController:container];
+    }
+    [self presentViewController:container animated:YES completion:nil];
 }
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
     BOOL presented = picker.presentingViewController != nil;
@@ -92,7 +138,41 @@
     }];
 }
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-    [picker dismissViewControllerAnimated:YES completion:^{ self.result.text = @"Original PHPicker callback received; no synthetic Photos asset created."; }];
+    BOOL presented=picker.presentingViewController!=nil;
+    BOOL swiftBridge=results.count==0 || ((BOOL (*)(id,SEL,id))objc_msgSend)(NSClassFromString(@"PPProviderProbe"),NSSelectorFromString(@"verify:"),results);
+    [picker dismissViewControllerAnimated:YES completion:^{
+        BOOL dismissed=picker.presentingViewController==nil;
+        if (!results.count) { self.result.text=presented && dismissed?@"PASS php cancel; presenter=yes; dismiss=yes":@"FAIL php cancel"; return; }
+        dispatch_group_t group=dispatch_group_create();
+        __block NSUInteger objectCount=0,dataCount=0,fileCount=0;
+        __block BOOL identities=YES;
+        NSObject *lock=[NSObject new];
+        for (PHPickerResult *result in results) {
+            if (result.assetIdentifier!=nil) identities=NO;
+            NSItemProvider *provider=result.itemProvider;
+            dispatch_group_enter(group);
+            [provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> image,NSError *error) {
+                @synchronized(lock) { if ([image isKindOfClass:UIImage.class] && !error) objectCount++; }
+                dispatch_group_leave(group);
+            }];
+            NSString *type=provider.registeredTypeIdentifiers.firstObject?:UTTypePNG.identifier;
+            dispatch_group_enter(group);
+            [provider loadDataRepresentationForTypeIdentifier:type completionHandler:^(NSData *data,NSError *error) {
+                @synchronized(lock) { if (data.length && !error) dataCount++; }
+                dispatch_group_leave(group);
+            }];
+            dispatch_group_enter(group);
+            [provider loadFileRepresentationForTypeIdentifier:type completionHandler:^(NSURL *url,NSError *error) {
+                unsigned long long bytes=[[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil][NSFileSize] unsignedLongLongValue];
+                @synchronized(lock) { if (bytes && !error) fileCount++; }
+                dispatch_group_leave(group);
+            }];
+        }
+        dispatch_group_notify(group,dispatch_get_main_queue(),^{
+            BOOL valid=presented && dismissed && identities && swiftBridge && objectCount==results.count && dataCount==results.count && fileCount==results.count;
+            self.result.text=[NSString stringWithFormat:@"%@ providers; count=%lu; object=%@; data=%@; file=%@; identities=%@; dismiss=%@; swift=%@",valid?@"PASS":@"FAIL",(unsigned long)results.count,objectCount==results.count?@"yes":@"no",dataCount==results.count?@"yes":@"no",fileCount==results.count?@"yes":@"no",identities?@"nil":@"unexpected",dismissed?@"yes":@"no",swiftBridge?@"yes":@"no"];
+        });
+    }];
 }
 @end
 @interface HarnessAppDelegate : UIResponder <UIApplicationDelegate>

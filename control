@@ -1,8 +1,8 @@
 Package: dev.pickerpatcher.prototype
 Name: PickerPatcher Prototype
-Version: 0.6.0
+Version: 0.7.0
 Architecture: iphoneos-arm64
 Maintainer: PickerPatcher
-Description: Per-app Photos or Files picker for iOS 15 standard UIKit photo pickers
+Description: Per-app Photos or Files picker for iOS 15 UIKit, PhotosUI and WebKit upload pickers
 Section: Tweaks
 Depends: firmware (>= 15.0)

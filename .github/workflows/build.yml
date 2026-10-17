@@ -24,7 +24,7 @@ on:
       app_display_name:
         description: 'Optional name shown under the on-device patcher icon'
         required: false
-        default: 'PickerPatcher 0.6'
+        default: 'PickerPatcher 0.7'
         type: string
       icon_image_url:
         description: 'Optional direct HTTPS URL to a JPG or PNG for the patcher icon'
@@ -100,7 +100,7 @@ jobs:
 
       - name: Build on-device patcher IPA for TrollStore
         env:
-          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.6' }}
+          APP_DISPLAY_NAME: ${{ inputs.app_display_name || 'PickerPatcher 0.7' }}
           ICON_IMAGE_URL: ${{ inputs.icon_image_url || '' }}
         run: |
           set -euo pipefail
@@ -131,7 +131,7 @@ jobs:
           simulator_arch="$(uname -m)"
           xcrun --sdk iphonesimulator clang -arch "$simulator_arch" -target "${simulator_arch}-apple-ios15.0-simulator" \
             -isysroot "$simulator_sdk" -fobjc-arc -fmodules -dynamiclib \
-            -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation \
+            -framework UIKit -framework UniformTypeIdentifiers -framework ImageIO -framework AVFoundation -framework PhotosUI -framework WebKit \
             Core/PickerPatcher.m -o PatcherApp/BridgeResources/PickerPatcherSecond.dylib
           codesign --force --sign - --timestamp=none PatcherApp/BridgeResources/PickerPatcherSecond.dylib
           (cd dist && ditto -c -k --keepParent PickerPatcherEmbedded.framework ../PatcherApp/Resources/Payload.zip)
@@ -185,6 +185,16 @@ jobs:
           xcodebuild build-for-testing -project PatcherApp/PickerPatcherApp.xcodeproj -scheme PickerBridgeHost \
             -configuration Debug -destination "platform=iOS Simulator,id=$simulator" \
             -derivedDataPath "$RUNNER_TEMP/PickerBridgeSim" CODE_SIGNING_ALLOWED=NO
+          # Test the actual integration mechanism: the host is built WITHOUT
+          # the hook source, then its Mach-O gains the same framework load command
+          # used by the on-device patcher. A source-linked host cannot prove this.
+          PP_SDK=iphonesimulator bash Tools/build-embedded.sh "$RUNNER_TEMP/SimulatorEmbedded"
+          bridge_app="$RUNNER_TEMP/PickerBridgeSim/Build/Products/Debug-iphonesimulator/PickerBridgeHost.app"
+          mkdir -p "$bridge_app/Frameworks"
+          cp -R "$RUNNER_TEMP/SimulatorEmbedded/PickerPatcherEmbedded.framework" "$bridge_app/Frameworks/"
+          codesign --force --sign - --timestamp=none "$bridge_app/Frameworks/PickerPatcherEmbedded.framework"
+          dist/pp-inject "$bridge_app/PickerBridgeHost" '@executable_path/Frameworks/PickerPatcherEmbedded.framework/PickerPatcherEmbedded'
+          otool -L "$bridge_app/PickerBridgeHost" > dist/simulator-injected-load-commands.txt
           python3 Tools/sign-trollstore-app.py \
             "$RUNNER_TEMP/PickerBridgeSim/Build/Products/Debug-iphonesimulator/PickerBridgeHost.app" \
             dist/simulator-bridge-signing.json --simulator
@@ -209,9 +219,13 @@ jobs:
             xcrun simctl spawn "$simulator" log show --last 10m --style compact \
               --predicate 'process == "fileproviderd" OR subsystem CONTAINS "DocumentManager" OR eventMessage CONTAINS "sandbox extension"' \
               > dist/simulator-file-provider.log || true
-            container="$(xcrun simctl get_app_container "$simulator" dev.pickerpatcher.app.v06 data 2>/dev/null || true)"
+            container="$(xcrun simctl get_app_container "$simulator" dev.pickerpatcher.app.v07 data 2>/dev/null || true)"
             if [ -n "$container" ] && [ -f "$container/Documents/PickerPatcher-diagnostics.txt" ]; then
               cp "$container/Documents/PickerPatcher-diagnostics.txt" dist/simulator-import-diagnostics.txt
+            fi
+            bridge_container="$(xcrun simctl get_app_container "$simulator" dev.pickerpatcher.bridgehost data 2>/dev/null || true)"
+            if [ -n "$bridge_container" ] && [ -f "$bridge_container/Library/Caches/PickerPatcher-runtime.txt" ]; then
+              cp "$bridge_container/Library/Caches/PickerPatcher-runtime.txt" dist/simulator-injected-runtime.txt
             fi
           fi
 
@@ -221,7 +235,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import shutil
-          paths = [".github/workflows/build.yml",".gitignore","Core/MachOInject.c","Core/MachOInject.h","Core/PickerPatcher.m","Embedded/Info.plist","Harness/Info.plist","Harness/main.m","Makefile","PatcherApp/Info.plist","PatcherApp/Sources/Bridging.h","PatcherApp/Sources/IPAImport.swift","PatcherApp/Sources/IPAPatcher.swift","PatcherApp/Sources/PickerPatcherApp.swift","PatcherApp/UITests/PickerTests.swift","PatcherApp/project.yml","PickerPatcher.plist","README.md","Research/iOS15-deep-research.md","Research/iOS15-feasibility.md","Research/iOS15-picker-diagnosis.md","Tests/test_macho_inject.py","Tools/build-embedded.sh","Tools/configure_app.py","Tools/make_app_icon.swift","Tools/patch_ipa.py","Tools/sign-trollstore-app.py","configure-target.py","control"]
+          paths = [".github/workflows/build.yml",".gitignore","Core/MachOInject.c","Core/MachOInject.h","Core/PickerPatcher.m","Embedded/Info.plist","Harness/Info.plist","Harness/main.m","Harness/ProviderSwiftProbe.swift","Makefile","PatcherApp/Info.plist","PatcherApp/Sources/Bridging.h","PatcherApp/Sources/IPAImport.swift","PatcherApp/Sources/IPAPatcher.swift","PatcherApp/Sources/PickerPatcherApp.swift","PatcherApp/UITests/PickerTests.swift","PatcherApp/project.yml","PickerPatcher.plist","README.md","Research/iOS15-upload-api-research.md","Research/iOS15-deep-research.md","Research/iOS15-feasibility.md","Research/iOS15-picker-diagnosis.md","Tests/test_macho_inject.py","Tools/build-embedded.sh","Tools/configure_app.py","Tools/make_app_icon.swift","Tools/patch_ipa.py","Tools/sign-trollstore-app.py","configure-target.py","control"]
           root = Path("source-for-github")
           for name in paths:
               target = root / name
@@ -233,7 +247,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PickerPatcher-GitHub-ready-iOS15-0.6.0
+          name: PickerPatcher-GitHub-ready-iOS15-0.7.0
           path: source-for-github/
           include-hidden-files: true
           if-no-files-found: error
@@ -243,7 +257,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PickerPatcher-installables-iOS15-0.6.0
+          name: PickerPatcher-installables-iOS15-0.7.0
           path: |
             dist/*.ipa
             dist/*.deb
