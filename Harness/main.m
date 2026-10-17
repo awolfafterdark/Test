@@ -40,6 +40,14 @@ static BOOL HarnessPresented(UIViewController *controller) {
 }
 @end
 
+#if __has_include("PickerBridgeHost-Swift.h")
+#import "PickerBridgeHost-Swift.h"
+#elif __has_include("PickerHarness-Swift.h")
+#import "PickerHarness-Swift.h"
+#else
+#error The harness requires its generated Swift interface
+#endif
+
 @interface HarnessController : UIViewController <UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate>
 @property(nonatomic, strong) UILabel *result;
 @property(nonatomic, strong) id providerDelegate;
@@ -91,15 +99,13 @@ static BOOL HarnessPresented(UIViewController *controller) {
 - (void)choose:(UIButton *)button {
     if (button.tag == 6) { [self.navigationController pushViewController:[HarnessWebController new] animated:YES]; return; }
     if (button.tag == 3 || button.tag == 4) {
-        PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] init];
-        configuration.selectionLimit = button.tag == 4 ? 2 : 1;
-        configuration.filter=PHPickerFilter.imagesFilter;
-        PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
-        id allocated=[NSClassFromString(@"PPProviderDelegate") alloc];
-        self.providerDelegate=((id (*)(id,SEL,id))objc_msgSend)(allocated,NSSelectorFromString(@"initWithResultLabel:"),self.result);
-        NSAssert(self.providerDelegate!=nil,@"The real Swift PHPicker delegate must load");
-        ((void (*)(id,SEL,id))objc_msgSend)(self.providerDelegate,NSSelectorFromString(@"attachToPicker:"),picker);
-        NSAssert([picker.delegate respondsToSelector:@selector(picker:didFinishPicking:)],@"Swift overlay must install its Objective-C delegate adapter");
+        PPProviderDelegate *probe=[[PPProviderDelegate alloc] initWithResultLabel:self.result];
+        self.providerDelegate=probe;
+        PHPickerViewController *picker=[probe makePickerWithSelectionLimit:button.tag==4?2:1];
+        if (![picker.delegate respondsToSelector:@selector(picker:didFinishPicking:)]) {
+            self.result.text=@"FAIL Swift overlay delegate adapter unavailable";
+            return;
+        }
         [self presentViewController:picker animated:YES completion:nil];
         return;
     }

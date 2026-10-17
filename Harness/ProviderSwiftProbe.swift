@@ -12,11 +12,16 @@ final class ProviderDelegate: NSObject, PHPickerViewControllerDelegate {
         self.resultLabel = resultLabel
         super.init()
     }
-    // PHPicker's Swift delegate protocol is not @objc. Its overlay setter
-    // installs Apple's Objective-C forwarding adapter; raw ObjC assignment skips it.
-    @objc(attachToPicker:)
-    func attach(to picker: PHPickerViewController) {
+    // Use the overlay initializer and setter together. A picker allocated
+    // through Objective-C is not a complete native Swift delegate setup.
+    @objc(makePickerWithSelectionLimit:)
+    func makePicker(selectionLimit: Int) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.selectionLimit = selectionLimit
+        configuration.filter = .images
+        let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
+        return picker
     }
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         let presented = picker.presentingViewController != nil

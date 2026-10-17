@@ -350,7 +350,10 @@ static NSItemProvider *PPProvider(NSDictionary *media) {
     if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"dev.pickerpatcher.bridgehost"] && testDirectory) self.document.directoryURL=[NSURL fileURLWithPath:testDirectory isDirectory:YES];
     objc_setAssociatedObject(self.document,PPKey(@"Session"),self,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(self.picker,PPKey(@"Session"),self,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    PPCallPresent(self.container,self.document,animated,completion);
+    // The picker owns its remote Photos presentation, including when it is a
+    // child of an outer container. Presenting from the outer sibling can put
+    // Files behind that remote Photos interface during its first load.
+    PPCallPresent(self.picker,self.document,animated,completion);
 }
 @end
 
