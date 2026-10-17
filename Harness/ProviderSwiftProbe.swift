@@ -5,17 +5,17 @@ import PhotosUI
 // Swift value types. Exercise that real callback, rather than casting an array
 // through a made-up Objective-C helper signature.
 @objc(PPProviderDelegate)
-final class ProviderDelegate: NSObject, PHPickerViewControllerDelegate {
+public final class ProviderDelegate: NSObject, PHPickerViewControllerDelegate {
     private weak var resultLabel: UILabel?
     @objc(initWithResultLabel:)
-    init(resultLabel: UILabel) {
+    public init(resultLabel: UILabel) {
         self.resultLabel = resultLabel
         super.init()
     }
     // Use the overlay initializer and setter together. A picker allocated
     // through Objective-C is not a complete native Swift delegate setup.
     @objc(makePickerWithSelectionLimit:)
-    func makePicker(selectionLimit: Int) -> PHPickerViewController {
+    public func makePicker(selectionLimit: Int) -> PHPickerViewController {
         var configuration = PHPickerConfiguration()
         configuration.selectionLimit = selectionLimit
         configuration.filter = .images
@@ -23,7 +23,7 @@ final class ProviderDelegate: NSObject, PHPickerViewControllerDelegate {
         picker.delegate = self
         return picker
     }
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+    public func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         let presented = picker.presentingViewController != nil
         picker.dismiss(animated: true) {
             let dismissed = picker.presentingViewController == nil
